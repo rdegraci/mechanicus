@@ -1,0 +1,7 @@
+# Secrets for Mechanicus.
+# On first start this file is copied to
+# ~/Library/Application Support/mechanicus/.env.
+# Later edits of that copy are kept.
+# A value already set in the environment is left as it is.
+
+OPENAI_API_KEY=

@@ -1,0 +1,47 @@
+# Mechanicus
+
+Mechanicus stores a behavior and writes the tests first. The tests must fail against an empty module. It then asks for the shortest Python that makes those tests pass. It adopts a generation only after pytest passes.
+
+The project database is `.mechanicus/seed.db` in the directory where you start Mechanicus. Each project has its own database.
+
+## Requirements
+
+You need Python 3.10 or later. You need an OpenAI API key.
+
+## Install
+
+1. Go to the Mechanicus repository.
+2. Create a virtual environment: `python3 -m venv .venv`.
+3. Install the package: `.venv/bin/pip install -e .`.
+
+## Configure
+
+1. Start Mechanicus: `.venv/bin/python -m mechanicus`.
+2. Enter `/quit`.
+3. Open `~/Library/Application Support/mechanicus/.env`.
+4. Set `OPENAI_API_KEY` to your key.
+5. Save the file.
+
+The first start copies `.env` and `config.yaml` into that directory. Mechanicus does not replace a file that is already there. `/spec` uses the model name and the reasoning effort in `config.yaml`. The default model is `gpt-4o`. The default reasoning effort is `medium`.
+
+## Usage
+
+1. Go to the project directory.
+2. Start Mechanicus: `.venv/bin/python -m mechanicus`.
+
+```text
+/spec greet Return the word hello
+/adopt greet
+/show greet
+/generate greet
+/quit
+```
+
+`/generate greet` writes `greet.py` and `tests/test_greet.py` in the startup directory.
+
+You can also run the `mechanicus` command after install.
+
+## Documentation
+
+- [Quick start](docs/QUICK-START.md) shows install, the API key, and one specification.
+- [Operator guide](docs/OPERATOR-GUIDE.md) lists every command and the pin, adopt, revert, write, and run rules.

@@ -6,7 +6,7 @@ For all commands, read [OPERATOR-GUIDE.md](OPERATOR-GUIDE.md).
 
 ## Before you start
 
-You need Python 3.10 or later. You need an OpenAI API key.
+You need Python 3.10 or later. You need an OpenAI API key. You need a TypeSafe API key.
 
 ## Install
 
@@ -19,8 +19,9 @@ You need Python 3.10 or later. You need an OpenAI API key.
 1. Start Mechanicus: `.venv/bin/python -m mechanicus`.
 2. Enter `/quit`.
 3. Open `~/Library/Application Support/mechanicus/.env`.
-4. Set `OPENAI_API_KEY` to your key.
-5. Save the file.
+4. Set `OPENAI_API_KEY` to your OpenAI key.
+5. Set `TYPESAFE_API_KEY` to your TypeSafe key.
+6. Save the file.
 
 The first start creates that file. Mechanicus does not replace it after that.
 
@@ -49,4 +50,4 @@ Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its
 3. Enter `/build`.
 4. Enter `/quit`.
 
-`/build` writes one `.py` file for each module that passes. It also writes the tests under `tests/`. A module that calls another module starts with `uses:` and that module name. When modules use each other, `/build` adds one module for the shared job and then builds.
+`/build` writes one `.py` file for each module that passes. It also writes the tests under `tests/`. A module that calls another module starts with `uses:` and that module name. When modules use each other, `/build` adds one module for the shared job and then builds. Jev checks that the modules cover the description. The writing model adds a missing module.

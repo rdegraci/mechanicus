@@ -1,4 +1,5 @@
 import ast
+import json
 import logging
 import os
 import re
@@ -7,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import types
+import urllib.error
+import urllib.request
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
@@ -40,6 +43,11 @@ class PlannedModule(BaseModel):
 
 class ApplicationPlan(BaseModel):
     modules: list[PlannedModule]
+    explanation: str
+
+
+class BehaviorParts(BaseModel):
+    parts: list[str]
     explanation: str
 
 
@@ -116,6 +124,13 @@ def configured_reasoning_effort():
     return str(effort)
 
 
+def configured_jev_model():
+    model = load_config().get("jev_model")
+    if not model:
+        return "jev-1.14.0"
+    return str(model)
+
+
 def configured_repair_attempts():
     raw = load_config().get("repair_attempts")
     if raw is None or raw == "":
@@ -153,6 +168,7 @@ def start_session_log():
     log.info("database %s", database_path())
     log.info("model %s", configured_model())
     log.info("reasoning effort %s", configured_reasoning_effort())
+    log.info("jev model %s", configured_jev_model())
     return path
 
 
@@ -499,6 +515,32 @@ Output fields:
 - explanation: one short paragraph naming the architecture
 """
 
+_PARTS_INSTRUCTIONS = """You list the behaviors in an application description.
+
+Split the description into separate behaviors.
+Keep each behavior in the words of the description.
+Do not add a behavior the description does not state.
+Do not write Python.
+
+Output fields:
+- parts: one string for each behavior
+- explanation: one short paragraph
+"""
+
+_ADD_INSTRUCTIONS = """You add modules for behaviors that a plan does not cover.
+
+Add one module for each missing behavior.
+Do not repeat a module name that already exists.
+A new module may call a module already in the plan. List that name in uses.
+The name is a relative path with no spaces and no file extension. Use slashes for directories.
+The behavior is one or more sentences the user can edit.
+Do not write Python.
+
+Output fields:
+- modules: only the new modules
+- explanation: one short paragraph
+"""
+
 _CYCLE_INSTRUCTIONS = """You split modules that use each other so a build can order them.
 
 Add one new module for the job those modules share.
@@ -550,6 +592,12 @@ def generate_tests(behavior: str) -> TestsResult:
 def repair_tests(behavior: str, tests: str, check: str, output: str, kind: str) -> TestsResult:
     if kind == "pass":
         reason = "Pytest passed. The tests do not require the behavior."
+    elif kind == "uses":
+        reason = (
+            "These tests can pass when the implementation never calls a required module. "
+            "The tests and the check must fail when that call is missing. "
+            "They must also fail while impl.py is empty."
+        )
     else:
         reason = (
             "Pytest did not fail on the missing behavior. "
@@ -603,6 +651,28 @@ def generate_code(behavior: str, tests: str, check: str, modules=None, required=
     )
 
 
+def list_behaviors(description: str) -> BehaviorParts:
+    return _request_generation(
+        "Application description:\n"
+        f"{description}\n\n"
+        "List each behavior in this description.",
+        _PARTS_INSTRUCTIONS,
+        BehaviorParts,
+    )
+
+
+def add_missing_modules(description: str, modules, missing) -> ApplicationPlan:
+    missing_lines = "\n".join(f"- {part}" for part in missing)
+    return _request_generation(
+        f"{_plan_state(description, modules)}\n\n"
+        "These behaviors have no module:\n"
+        f"{missing_lines}\n\n"
+        "Add one module for each missing behavior.",
+        _ADD_INSTRUCTIONS,
+        ApplicationPlan,
+    )
+
+
 def plan_application(description: str) -> ApplicationPlan:
     return _request_generation(
         "Application description:\n"
@@ -630,6 +700,129 @@ def repair_cycle(members) -> CycleRepair:
         _CYCLE_INSTRUCTIONS,
         CycleRepair,
     )
+
+
+_JEV_YES = 0.7
+_JEV_URL = "https://api.typesafe.ai/v1/systemone"
+_JEV_SKIP_PRINTED = False
+
+
+def _note_jev_skipped():
+    global _JEV_SKIP_PRINTED
+    log.info("jev skipped: no api key")
+    if _JEV_SKIP_PRINTED:
+        return
+    _JEV_SKIP_PRINTED = True
+    print("Jev was not called. Set TYPESAFE_API_KEY.")
+
+
+def _noul(answers, key):
+    answer = answers.get(key)
+    if not isinstance(answer, dict):
+        return 0.0
+    try:
+        return float(answer.get("noul"))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def ask_jev(state, questions):
+    """Ask Jev yes-or-no questions. Return None when the API key is empty."""
+    key = os.environ.get("TYPESAFE_API_KEY", "").strip()
+    if not key:
+        return None
+    if not questions:
+        return {}
+    model = configured_jev_model()
+    log.info("jev request model=%s questions=%s", model, len(questions))
+    payload = json.dumps({
+        "model": model,
+        "state": state,
+        "questions": questions,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        _JEV_URL,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:500]
+        raise RuntimeError(f"Jev request failed ({error.code}). {detail}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"Jev request failed. {error.reason}") from error
+    log.info("jev response model=%s", body.get("model"))
+    answers = body.get("answers")
+    if not isinstance(answers, dict):
+        raise RuntimeError("Jev response has no answers.")
+    return answers
+
+
+def _plan_state(description, modules):
+    blocks = [f"Application description:\n{str(description).strip()}"]
+    for item in modules:
+        lines = [f"uses: {use}" for use in item["uses"]]
+        block = f"--- {item['name']} ---\n"
+        if lines:
+            block += "\n".join(lines) + "\n\n"
+        block += item["behavior"]
+        blocks.append(block)
+    return "\n\n".join(blocks)
+
+
+def missing_behaviors(description, modules, parts):
+    """Return behaviors no module performs. Return None when the API key is empty."""
+    questions = {}
+    for index, part in enumerate(parts):
+        questions[f"part-{index}"] = {
+            "type": "noul",
+            "instructions": f"Does at least one module perform this behavior: {part}?",
+        }
+    answers = ask_jev(_plan_state(description, modules), questions)
+    if answers is None:
+        _note_jev_skipped()
+        return None
+    missing = []
+    for index, part in enumerate(parts):
+        probability = _noul(answers, f"part-{index}")
+        log.info("jev behavior %.2f %s", probability, part)
+        if probability < _JEV_YES:
+            missing.append(part)
+            print(f"No module performs this behavior ({probability:.2f}): {part}")
+    return missing
+
+
+def weak_call_tests(behavior, tests, check, required):
+    """Return uses modules the tests do not require. Return None when the key is empty."""
+    questions = {}
+    labels = []
+    for index, spec_name in enumerate(required):
+        imported = module_import(spec_name) or spec_name
+        questions[f"call-{index}"] = {
+            "type": "noul",
+            "instructions": (
+                f"Do these tests fail when the implementation never calls {imported}?"
+            ),
+        }
+        labels.append(imported)
+    state = f"Behavior:\n{behavior}\n\nTests:\n{tests}\n\nCheck:\n{check}"
+    answers = ask_jev(state, questions)
+    if answers is None:
+        _note_jev_skipped()
+        return None
+    weak = []
+    for index, imported in enumerate(labels):
+        probability = _noul(answers, f"call-{index}")
+        log.info("jev tests %s %.2f", imported, probability)
+        if probability < _JEV_YES:
+            weak.append((imported, probability))
+    return weak
 
 
 def _used_names(tree):
@@ -1209,12 +1402,14 @@ def _print_tests(tests, check, explanation):
     print(f"\n{explanation}")
 
 
-def tests_until_red(behavior, modules=None):
+def tests_until_red(behavior, modules=None, required=None):
     """Write tests that fail against an empty module. Return None when they do not."""
+    required = list(required or [])
     result = generate_tests(behavior)
     repairs_left = configured_repair_attempts()
     repair_limit = repairs_left
     repair_number = 0
+    jev_checked = False
     while True:
         tests = result.tests
         check = result.check
@@ -1230,6 +1425,34 @@ def tests_until_red(behavior, modules=None):
             kind = classify_before_code(passed, output)
             log.info("tests before the implementation: %s", kind)
             log.info("pytest output:\n%s", _failure_text(output))
+        if kind == "red" and required and not jev_checked:
+            jev_checked = True
+            try:
+                weak = weak_call_tests(behavior, tests, check, required)
+            except Exception as error:
+                log.exception("jev tests failed")
+                print(f"Error: {error}")
+                print("Jev did not judge the tests.")
+                weak = []
+            if weak:
+                details = ", ".join(f"{name} ({probability:.2f})" for name, probability in weak)
+                print(f"Tests do not require these calls: {details}.")
+                output = (
+                    "These tests do not fail when the implementation never calls: "
+                    + ", ".join(name for name, _probability in weak)
+                    + "."
+                )
+                print("Repairing tests for the missing calls...")
+                log.info("repair tests for calls %s", ", ".join(name for name, _probability in weak))
+                try:
+                    result = repair_tests(behavior, tests, check, output, "uses")
+                except Exception as error:
+                    log.exception("repair tests for calls failed")
+                    print(f"Error: {error}")
+                    log.info("tests fail before the implementation")
+                    print("Tests fail before the implementation.")
+                    return tests, check
+                continue
         if kind == "red":
             log.info("tests fail before the implementation")
             print("Tests fail before the implementation.")
@@ -1263,7 +1486,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         return
     print("Writing tests...")
     try:
-        written = tests_until_red(behavior, modules)
+        written = tests_until_red(behavior, modules, required)
     except Exception as error:
         log.exception("spec failed for %s", name)
         print(f"Error: {error}")
@@ -1429,6 +1652,84 @@ def find_module_files(root):
     return found
 
 
+def _planned_module_records(root, modules, seen_names):
+    root = Path(root).resolve()
+    records = []
+    for module in modules:
+        spec_name, destination = module_output_path(root, module.name)
+        behavior = str(module.behavior).strip()
+        if spec_name is None or destination is None or not behavior:
+            log.info("plan skipped %s", module.name)
+            print(f"Skipped '{module.name}'.")
+            continue
+        if spec_name in seen_names:
+            relative = destination.relative_to(root).as_posix()
+            log.info("plan skipped duplicate %s", relative)
+            print(f"Skipped duplicate '{relative}'.")
+            continue
+        seen_names.add(spec_name)
+        uses = []
+        for raw in module.uses or []:
+            norm = spec_name_for_module(raw)
+            if norm and norm != spec_name and norm not in uses:
+                uses.append(norm)
+        records.append({
+            "name": spec_name,
+            "path": destination,
+            "relative": destination.relative_to(root).as_posix(),
+            "behavior": behavior,
+            "uses": uses,
+            "exists": destination.exists(),
+        })
+    return records
+
+
+def _cover_plan(root, description, normalized):
+    """Add modules for behaviors Jev says the plan does not cover."""
+    if not os.environ.get("TYPESAFE_API_KEY", "").strip():
+        _note_jev_skipped()
+        return normalized
+    try:
+        listed = list_behaviors(description)
+    except Exception as error:
+        log.exception("behavior list failed")
+        print(f"Error: {error}")
+        return normalized
+    parts = []
+    for part in listed.parts:
+        text = str(part).strip()
+        if text and text not in parts:
+            parts.append(text)
+    if not parts:
+        log.info("description has no behaviors")
+        return normalized
+    try:
+        missing = missing_behaviors(description, normalized, parts)
+    except Exception as error:
+        log.exception("jev plan failed")
+        print(f"Error: {error}")
+        print("Jev did not judge the plan.")
+        return normalized
+    if not missing:
+        return normalized
+    print("Adding the missing modules...")
+    try:
+        added = add_missing_modules(description, normalized, missing)
+    except Exception as error:
+        log.exception("add modules failed")
+        print(f"Error: {error}")
+        return normalized
+    if str(added.explanation).strip():
+        print(added.explanation.strip())
+    seen = {item["name"] for item in normalized}
+    extra = _planned_module_records(root, added.modules, seen)
+    for item in extra:
+        if item["exists"]:
+            log.info("plan left %s in place", item["relative"])
+            print(f"Left {item['relative']} in place.")
+    return normalized + extra
+
+
 def plan_command(root, description):
     log.info("plan %s", description)
     print("Planning...")
@@ -1445,40 +1746,35 @@ def plan_command(root, description):
     log.info("saved application description")
     if plan.explanation.strip():
         print(f"\n{plan.explanation.strip()}")
-    if not plan.modules:
+    seen_names = set()
+    normalized = _planned_module_records(root, plan.modules, seen_names)
+    for item in normalized:
+        if item["exists"]:
+            log.info("plan left %s in place", item["relative"])
+            print(f"Left {item['relative']} in place.")
+    normalized = _cover_plan(root, description, normalized)
+    if not normalized:
         log.info("plan recommended no modules")
         print("No modules recommended.")
         return
-    seen = set()
+    on_disk = {record["name"] for record in module_records(root)}
+    available = {item["name"] for item in normalized} | on_disk
     wrote = False
-    for module in plan.modules:
-        spec_name, destination = module_output_path(root, module.name)
-        behavior = str(module.behavior).strip()
-        if spec_name is None or destination is None or not behavior:
-            log.info("plan skipped %s", module.name)
-            print(f"Skipped '{module.name}'.")
-            continue
-        if destination in seen:
-            relative = destination.relative_to(root).as_posix()
-            log.info("plan skipped duplicate %s", relative)
-            print(f"Skipped duplicate '{relative}'.")
-            continue
-        seen.add(destination)
-        relative = destination.relative_to(root).as_posix()
-        if destination.exists():
-            log.info("plan left %s in place", relative)
-            print(f"Left {relative} in place.")
+    for item in normalized:
+        if item["exists"]:
             continue
         uses = []
-        for raw in module.uses or []:
-            norm = spec_name_for_module(raw)
-            if norm and norm != spec_name and norm not in uses:
-                uses.append(norm)
-        text = format_module_text(uses, behavior)
-        write_text_file(destination, text)
+        for use in item["uses"]:
+            if use not in available:
+                log.info("plan removed uses %s -> %s", item["name"], use)
+                print(f"Removed uses: {use} from {item['name']}. The plan has no {use} module.")
+                continue
+            uses.append(use)
+        text = format_module_text(uses, item["behavior"])
+        write_text_file(item["path"], text)
         wrote = True
-        log.info("wrote %s", relative)
-        print(f"\n--- {relative} ---")
+        log.info("wrote %s", item["relative"])
+        print(f"\n--- {item['relative']} ---")
         print(text)
     if wrote:
         print("\nEdit the module files, then enter /build.")

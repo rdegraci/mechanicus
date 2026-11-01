@@ -5,3 +5,4 @@
 # A value already set in the environment is left as it is.
 
 OPENAI_API_KEY=
+TYPESAFE_API_KEY=

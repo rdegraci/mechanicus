@@ -10,7 +10,7 @@ The startup directory is the current directory when Mechanicus starts. Mechanicu
 
 The application directory is `~/Library/Application Support/mechanicus`. The first start copies `config.yaml` and `.env` into that directory. Mechanicus does not replace a file that is already there.
 
-`config.yaml` holds the model name and the reasoning effort. `.env` holds `OPENAI_API_KEY`. If that name is already in the environment, Mechanicus keeps the environment value.
+`config.yaml` holds the writing model, the reasoning effort, and the Jev model. `.env` holds `OPENAI_API_KEY` and `TYPESAFE_API_KEY`. If a key is already in the environment, Mechanicus keeps that value.
 
 `MECHANICUS_DB` selects a different database file. `MECHANICUS_APPDIR` selects a different application directory.
 
@@ -51,6 +51,8 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 
 Mechanicus runs the tests against an empty module. The tests must fail. Mechanicus repairs the tests when they pass or when they do not run. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. Mechanicus does not save a generation when the tests do not fail.
 
+When a module names another module in `uses:`, Jev reads the tests. Jev asks whether the tests fail when the code never calls that module. A score below 0.7 sends the tests to the writing model once. Mechanicus keeps those tests.
+
 Mechanicus does not adopt the new generation yet. Mechanicus does not replace a pinned specification. It does not call the model for that name.
 
 `/show` prints the behavior and the pin flag. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate.
@@ -76,6 +78,8 @@ Read a command and join a channel.
 
 Mechanicus does not write Python during `/plan`. It does not replace a `.module` file that is already there. It refuses a path outside the startup directory.
 
+Jev reads the plan after the writing model returns it. Jev checks each behavior in the description. A score below 0.7 means no module performs that behavior. The writing model adds the missing module. Mechanicus writes each recommended module.
+
 ## Build
 
 1. Enter `/build`.
@@ -98,7 +102,7 @@ Mechanicus writes the code to a temporary directory as `impl.py` and runs pytest
 
 Mechanicus adopts the generation only when the tests and the check both pass. It refuses an empty check. It refuses a longer generation when a shorter adopted generation has the same behavior. A different behavior can have more lines.
 
-When the tests fail, Mechanicus sends the pytest output to the model. The model repairs the code. The tests and the check do not change. Mechanicus saves that generation and runs pytest again. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. A pinned specification is not repaired. A failed run does not clear an older adopted generation.
+When the tests fail, Mechanicus sends the pytest output to the writing model. The writing model repairs the code. The tests and the check do not change. Mechanicus saves that generation and runs pytest again. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. A pinned specification is not repaired. A failed run does not clear an older adopted generation.
 
 If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. If that code is pinned and not adopted, Mechanicus still runs the tests.
 
@@ -134,13 +138,16 @@ If the specification is pinned, Mechanicus does not replace a module that this p
 3. Save the file.
 4. Start Mechanicus again.
 
-The example file is `src/mechanicus/config.yaml.example`. The default model is `gpt-4o`. The default reasoning effort is `medium`. `/spec` sends both values from `config.yaml`.
+The example file is `src/mechanicus/config.yaml.example`. The default model is `gpt-4o`. The default reasoning effort is `medium`. The default Jev model is `jev-1.14.0`. `/spec` sends the writing model and the reasoning effort from `config.yaml`.
 
 ## Secrets
 
 1. Open `~/Library/Application Support/mechanicus/.env`.
-2. Set `OPENAI_API_KEY` to your key.
-3. Save the file.
-4. Start Mechanicus again.
+2. Set `OPENAI_API_KEY` to your OpenAI key.
+3. Set `TYPESAFE_API_KEY` to your TypeSafe key.
+4. Save the file.
+5. Start Mechanicus again.
+
+When `TYPESAFE_API_KEY` is empty, Mechanicus skips Jev.
 
 The example file is `src/mechanicus/dot_env.example`.

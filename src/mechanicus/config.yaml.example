@@ -6,3 +6,4 @@
 model: gpt-4o
 reasoning_effort: medium
 repair_attempts: 3
+jev_model: jev-1.14.0

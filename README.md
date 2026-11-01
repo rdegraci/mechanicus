@@ -6,7 +6,7 @@ The project database is `.mechanicus/seed.db` in the directory where you start M
 
 ## Requirements
 
-You need Python 3.10 or later. You need an OpenAI API key.
+You need Python 3.10 or later. You need an OpenAI API key. You need a TypeSafe API key.
 
 ## Install
 
@@ -19,10 +19,11 @@ You need Python 3.10 or later. You need an OpenAI API key.
 1. Start Mechanicus: `.venv/bin/python -m mechanicus`.
 2. Enter `/quit`.
 3. Open `~/Library/Application Support/mechanicus/.env`.
-4. Set `OPENAI_API_KEY` to your key.
-5. Save the file.
+4. Set `OPENAI_API_KEY` to your OpenAI key.
+5. Set `TYPESAFE_API_KEY` to your TypeSafe key.
+6. Save the file.
 
-The first start copies `.env` and `config.yaml` into that directory. Mechanicus does not replace a file that is already there. `/spec` uses the model name and the reasoning effort in `config.yaml`. The default model is `gpt-4o`. The default reasoning effort is `medium`.
+The first start copies `.env` and `config.yaml` into that directory. Mechanicus does not replace a file that is already there. `/spec` uses the model name and the reasoning effort in `config.yaml`. The default model is `gpt-4o`. The default reasoning effort is `medium`. The default Jev model is `jev-1.14.0`.
 
 ## Usage
 
@@ -39,7 +40,7 @@ The first start copies `.env` and `config.yaml` into that directory. Mechanicus 
 
 `/generate greet` writes `greet.py` and `tests/test_greet.py` in the startup directory.
 
-Enter `/plan` and an application description. Mechanicus writes one `.module` file for each module. Edit a file when you want a different behavior. Enter `/build` to write the Python. When modules use each other, `/build` adds one module for the shared job before it writes the Python.
+Enter `/plan` and an application description. Mechanicus writes one `.module` file for each module. Edit a file when you want a different behavior. Enter `/build` to write the Python. When modules use each other, `/build` adds one module for the shared job before it writes the Python. Jev checks that the modules cover the description. The writing model adds a missing module.
 
 You can also run the `mechanicus` command after install.
 

@@ -30,6 +30,8 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | Command | Effect |
 | --- | --- |
 | `/spec <name> <behavior>` | Stores the behavior, writes failing tests, then requests code. |
+| `/plan <description>` | Writes one `.module` file for each recommended module. |
+| `/build` | Builds each `.module` file and writes the adopted code. |
 | `/show <name>` | Prints the specification, the adopted generation, and a newer candidate. |
 | `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. |
 | `/pin <name>` | Pins the specification and the latest code. |
@@ -54,6 +56,38 @@ Mechanicus does not adopt the new generation yet. Mechanicus does not replace a 
 `/show` prints the behavior and the pin flag. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate.
 
 A generation number starts at 1. `/show` prints the number. Use that number with `/revert`.
+
+## Plan
+
+1. Enter `/plan` and the application description.
+2. Read each `.module` file.
+3. Edit a file when the recommendation is wrong.
+4. Enter `/build`.
+
+`/plan` asks the model for the modules. It gives each job its own module. It writes one `.module` file for each module. The file text is that recommendation. `irc/parse.module` is the module `irc/parse`. Mechanicus saves the description in `.mechanicus/application.txt`.
+
+A module that calls another module starts with `uses:` and that module name.
+
+```text
+uses: irc/parse
+
+Read a command and join a channel.
+```
+
+Mechanicus does not write Python during `/plan`. It does not replace a `.module` file that is already there. It refuses a path outside the startup directory.
+
+## Build
+
+1. Enter `/build`.
+2. Read the result for each module.
+
+`/build` reads every `.module` file in the startup directory. It does not read files under `.mechanicus`. It builds a module after each module that file uses. For a new behavior, Mechanicus writes the tests, writes the code, runs pytest, and writes the adopted module.
+
+When modules use each other, Mechanicus adds one module for the shared job. The modules in the cycle do not use each other. Those modules can use the new module. Mechanicus writes the new file, then continues the build. When Mechanicus cannot use that new module, it removes `uses:` lines until the modules do not use each other. Mechanicus does not change a pinned module in that cycle.
+
+Pytest loads the module under test as `impl.py`. It also loads each adopted module named in `uses:`, and the modules those modules use. The code must call each module named in its own `uses:` line. An unused import does not pass. A module that names a missing module is not built.
+
+A pinned specification does not change. A module that is already adopted for the same behavior is written to disk and is not sent to the model. A module that fails is reported. Mechanicus does not write that module.
 
 ## Adopt
 
@@ -83,7 +117,7 @@ If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. I
 
 `/generate` writes adopted code into the startup directory. The specification name is the relative path. `pkg/mod` becomes `pkg/mod.py`. Mechanicus adds `.py` when the name does not already end with `.py`. It creates parent directories. It refuses a path outside the startup directory.
 
-`/generate` also writes the tests under `tests/`. `greet` writes `tests/test_greet.py`. `pkg/mod` writes `tests/pkg/test_mod.py`. The written tests import the generated module. The check remains in the project database.
+`/generate` also writes the tests under `tests/`. `greet` writes `tests/test_greet.py`. `pkg/mod` writes `tests/pkg/test_mod.py`. The written tests import that module as `impl`. A local name in the test stays as it is. The check remains in the project database.
 
 `/generate` with no name writes every adopted specification.
 

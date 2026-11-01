@@ -41,3 +41,12 @@ Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its
 6. Enter `/quit`.
 
 `/generate greet` writes `greet.py` and `tests/test_greet.py` in the project directory.
+
+## Plan an application
+
+1. Enter `/plan` and a description of the application.
+2. Edit a `.module` file when you want a different behavior.
+3. Enter `/build`.
+4. Enter `/quit`.
+
+`/build` writes one `.py` file for each module that passes. It also writes the tests under `tests/`. A module that calls another module starts with `uses:` and that module name. When modules use each other, `/build` adds one module for the shared job and then builds.

@@ -38,6 +38,8 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/build` | Builds each `.module` file and writes the adopted code. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
+| `/specs` | Lists each specification with the pin flag and the adopted generation. |
+| `/refactor <name>` | Rewrites adopted code for clarity. Tests and the check stay fixed. |
 | `/show <name>` | Prints the specification, the adopted generation, and a newer candidate. |
 | `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. |
 | `/pin <name>` | Pins the specification and the latest code. |
@@ -65,9 +67,20 @@ When a module names another module in `uses:`, Jev reads the tests. Jev asks whe
 
 Mechanicus does not adopt the new generation yet. Mechanicus does not replace a pinned specification. It does not call the model for that name.
 
+`/specs` prints each specification name, whether it is pinned, and the adopted generation number. When no specification is adopted yet, it prints `none`.
+
 `/show` prints the behavior and the pin flag. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate.
 
 A generation number starts at 1. `/show` prints the number. Use that number with `/revert`.
+
+## Refactor
+
+1. Enter `/unpin` and the name when the specification is pinned.
+2. Enter `/refactor` and the name.
+3. Read the new code.
+4. Enter `/generate` and the name when the clearer code is adopted.
+
+`/refactor` keeps the tests and the check. It asks for clearer code with the same behavior. It saves a new generation and runs the adopt path. A longer generation is allowed. A pinned specification is refused. `/build` still prefers the shortest code that passes the tests. Use `/refactor` when you want readability after a build.
 
 ## Draft
 

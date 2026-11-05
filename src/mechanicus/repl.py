@@ -12,6 +12,8 @@ from mechanicus.draft import (
 from mechanicus.lifecycle import (
     adopt_spec,
     generate_command,
+    list_specs,
+    refactor_command,
     revert_spec,
     run_adopted,
     show_spec,
@@ -39,6 +41,8 @@ def repl():
         print("  /add <feature>              - add a feature to the modules that perform it")
         print("  /build                      - build each .module file and write the adopted code")
         print("  /import <name>              - import package source as adopted and pinned")
+        print("  /specs                      - list specifications with pin and adopted generation")
+        print("  /refactor <name>            - rewrite adopted code for clarity; tests stay fixed")
         print("  /pin <name>                 - pin a spec so it cannot be regenerated or overwritten")
         print("  /unpin <name>               - clear that pin")
         print("  /adopt <name>               - run tests, repair the code, and adopt when they pass")
@@ -117,6 +121,10 @@ def repl():
                 build_command(root)
             elif cmd == "/import" and len(parts) == 2:
                 import_source(root, parts[1])
+            elif cmd == "/specs" and len(parts) == 1:
+                list_specs()
+            elif cmd == "/refactor" and len(parts) == 2:
+                refactor_command(parts[1])
             elif cmd == "/pin" and len(parts) == 2:
                 if pin_spec(parts[1]):
                     log.info("pinned %s", parts[1])

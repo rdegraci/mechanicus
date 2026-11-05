@@ -3,7 +3,13 @@ import re
 import types
 
 from mechanicus.bootstrap_guard import refuse_bootstrap
-from mechanicus.codegen import generate_code, generate_tests, repair_code, repair_tests
+from mechanicus.codegen import (
+    generate_code,
+    generate_tests,
+    refactor_code,
+    repair_code,
+    repair_tests,
+)
 from mechanicus.config import configured_repair_attempts, log, startup_dir
 from mechanicus.harness import (
     _failure_text,
@@ -130,7 +136,22 @@ def show_spec(name):
         )
 
 
-def adopt_spec(name, modules=None, required=None):
+def list_specs():
+    log.info("specs")
+    names = list_spec_names()
+    if not names:
+        print("No specifications.")
+        return
+    width = max(len(name) for name in names)
+    for name in names:
+        spec = get_spec(name)
+        pinned = "yes" if spec is not None and spec["pinned"] else "no"
+        adopted = get_adopted_artifact(spec["id"], "code") if spec is not None else None
+        generation = adopted["generation"] if adopted is not None else "none"
+        print(f"{name:<{width}}  pinned={pinned}  adopted={generation}")
+
+
+def adopt_spec(name, modules=None, required=None, allow_longer=False):
     log.info("adopt %s", name)
     if modules is None:
         from mechanicus.plan_build import dependency_modules
@@ -168,21 +189,22 @@ def adopt_spec(name, modules=None, required=None):
         log.info("adopt refused: no check")
         print("No behavioral check.")
         return
-    adopted = longer_than_adopted(spec["id"], code)
-    if adopted is not None:
-        log.info(
-            "adopt refused: generation %s has %s lines; adopted generation %s has %s lines",
-            code["generation"],
-            code["lines"],
-            adopted["generation"],
-            adopted["lines"],
-        )
-        print(
-            f"Refused. Generation {code['generation']} is {code['lines']} lines; "
-            f"adopted generation {adopted['generation']} is {adopted['lines']} lines "
-            f"for the same behavior."
-        )
-        return
+    if not allow_longer:
+        adopted = longer_than_adopted(spec["id"], code)
+        if adopted is not None:
+            log.info(
+                "adopt refused: generation %s has %s lines; adopted generation %s has %s lines",
+                code["generation"],
+                code["lines"],
+                adopted["generation"],
+                adopted["lines"],
+            )
+            print(
+                f"Refused. Generation {code['generation']} is {code['lines']} lines; "
+                f"adopted generation {adopted['generation']} is {adopted['lines']} lines "
+                f"for the same behavior."
+            )
+            return
     behavior = spec["behavior"]
     repairs_left = 0 if spec["pinned"] else configured_repair_attempts()
     repair_limit = repairs_left
@@ -204,21 +226,22 @@ def adopt_spec(name, modules=None, required=None):
                 log.info("generation %s does not call %s", code["generation"], ", ".join(unused))
                 print(output)
         if passed:
-            blocked = longer_than_adopted(spec["id"], code)
-            if blocked is not None:
-                log.info(
-                    "adopt refused: generation %s has %s lines; adopted generation %s has %s lines",
-                    code["generation"],
-                    code["lines"],
-                    blocked["generation"],
-                    blocked["lines"],
-                )
-                print(
-                    f"Refused. Generation {code['generation']} is {code['lines']} lines; "
-                    f"adopted generation {blocked['generation']} is {blocked['lines']} lines "
-                    f"for the same behavior."
-                )
-                return
+            if not allow_longer:
+                blocked = longer_than_adopted(spec["id"], code)
+                if blocked is not None:
+                    log.info(
+                        "adopt refused: generation %s has %s lines; adopted generation %s has %s lines",
+                        code["generation"],
+                        code["lines"],
+                        blocked["generation"],
+                        blocked["lines"],
+                    )
+                    print(
+                        f"Refused. Generation {code['generation']} is {code['lines']} lines; "
+                        f"adopted generation {blocked['generation']} is {blocked['lines']} lines "
+                        f"for the same behavior."
+                    )
+                    return
             mark_adopted(spec["id"], code["generation"])
             log.info("adopted generation %s", code["generation"])
             print("Tests passed. Adopted.")
@@ -263,6 +286,78 @@ def adopt_spec(name, modules=None, required=None):
         print("\nTests and check are unchanged.")
         print(f"\n{result.explanation}")
         print(f"\nSaved generation {generation}.")
+
+
+def refactor_command(name):
+    log.info("refactor %s", name)
+    if refuse_bootstrap(name, "refactored"):
+        return
+    spec = get_spec(name)
+    if spec is None:
+        log.info("refactor refused: spec not found")
+        print("Spec not found.")
+        return
+    if spec["pinned"]:
+        log.info("refactor refused: spec is pinned")
+        print(f"'{name}' is pinned. Unpin it before refactoring.")
+        return
+    code = get_adopted_artifact(spec["id"], "code")
+    if code is None or not str(code["content"]).strip():
+        log.info("refactor refused: no adopted code")
+        print(f"No adopted code for '{name}'.")
+        return
+    tests = get_adopted_artifact(spec["id"], "tests")
+    check = get_adopted_artifact(spec["id"], "check")
+    if tests is None or not str(tests["content"]).strip():
+        log.info("refactor refused: no tests")
+        print("No adopted tests.")
+        return
+    if check is None or not str(check["content"]).strip():
+        log.info("refactor refused: no check")
+        print("No behavioral check.")
+        return
+    from mechanicus.plan_build import dependency_modules
+
+    modules, required, missing = dependency_modules(startup_dir(), name)
+    if missing:
+        names = ", ".join(missing)
+        log.info("refactor refused: %s uses %s", name, names)
+        print(f"'{name}' uses {names}, which is not adopted.")
+        return
+    behavior = spec["behavior"]
+    print("Refactoring...")
+    try:
+        result = refactor_code(
+            behavior,
+            code["content"],
+            tests["content"],
+            check["content"],
+            modules,
+            required,
+        )
+    except Exception as error:
+        log.exception("refactor failed for %s", name)
+        print(f"Error: {error}")
+        return
+    try:
+        spec_id, generation = save_generation(
+            name, behavior, result.code, tests["content"], check["content"]
+        )
+    except Exception as error:
+        log.exception("refactor save failed for %s", name)
+        print(f"Error: {error}")
+        return
+    saved = get_generation_artifact(spec_id, generation, "code")
+    log.info("saved refactor generation %s (%s lines)", generation, saved["lines"])
+    print(f"\n--- Code ({saved['lines']} lines) ---")
+    print(result.code)
+    print("\nTests and check are unchanged.")
+    print(f"\n{result.explanation}")
+    print(f"\nSaved generation {generation}.")
+    adopt_spec(name, modules, required, allow_longer=True)
+    adopted = get_adopted_artifact(spec["id"], "code")
+    if adopted is not None and adopted["generation"] == generation:
+        print(f"Enter '/generate {name}' to write the clearer code to disk.")
 
 
 def revert_spec(name, generation):

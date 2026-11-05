@@ -58,6 +58,23 @@ Output fields:
 - explanation: one short paragraph
 """
 
+_REFACTOR_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
+The tests and the check are already written. They are fixed.
+Rewrite the implementation so it is easier to read and to parse.
+Keep the same behavior. Do not add a feature. Do not remove a behavior.
+Keep the public names the tests already call.
+Prefer clear structure and names over the fewest lines.
+Do not make the code verbose without a readability reason.
+Do not change the tests or the check.
+Call each adopted module the request names. An unused import does not count.
+Do not reimplement a listed module.
+When the request lists no adopted modules, do not import another project module.
+
+Output fields:
+- code: the clearer working Python implementation
+- explanation: one short paragraph
+"""
+
 _PLAN_INSTRUCTIONS = """You plan the modules of an application for a specification-driven coding system.
 
 Break the description into modules that form a clear architecture.
@@ -329,6 +346,22 @@ def repair_code(behavior: str, code: str, tests: str, check: str, output: str, m
     return _request_generation(
         _repair_request(behavior, code, tests, check, output, modules, required, tests_passed),
         _CODE_INSTRUCTIONS,
+        CodeResult,
+    )
+
+
+def refactor_code(behavior: str, code: str, tests: str, check: str, modules=None, required=None) -> CodeResult:
+    return _request_generation(
+        "Behavioral specification:\n"
+        f"{behavior}\n\n"
+        f"{_modules_prompt(modules, required)}"
+        "The tests and the check are fixed.\n"
+        "Rewrite the implementation so it is easier to read.\n"
+        "Keep the same behavior.\n\n"
+        f"Current code:\n{code}\n\n"
+        f"Tests:\n{tests}\n\n"
+        f"Check:\n{check}",
+        _REFACTOR_INSTRUCTIONS,
         CodeResult,
     )
 

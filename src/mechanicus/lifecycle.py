@@ -23,7 +23,7 @@ from mechanicus.harness import (
     uncalled_modules,
 )
 from mechanicus.jev import weak_call_tests
-from mechanicus.paths import adopted_output_path, test_output_path, write_text_file
+from mechanicus.paths import adopted_output_path, layout_conflict, test_output_path, write_text_file
 from mechanicus.store import (
     generation_numbers,
     get_adopted_artifact,
@@ -388,6 +388,11 @@ def revert_spec(name, generation):
 def write_adopted(root, name):
     log.info("generate %s", name)
     if refuse_bootstrap(name, "generated"):
+        return False
+    conflict = layout_conflict(root, name)
+    if conflict:
+        log.info("generate refused layout %s", conflict)
+        print(f"Skipped {conflict}")
         return False
     spec = get_spec(name)
     if spec is None:

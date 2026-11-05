@@ -14,7 +14,7 @@ from mechanicus.bootstrap_guard import refuse_bootstrap
 from mechanicus.config import code_root, log
 from mechanicus.jev import _JEV_YES, _note_jev_skipped, feature_score, missing_behaviors
 from mechanicus.lifecycle import adopt_spec, spec_command, write_adopted
-from mechanicus.paths import write_text_file
+from mechanicus.paths import layout_conflict, write_text_file
 from mechanicus.store import get_adopted_artifact, get_latest_artifact, get_spec
 
 
@@ -156,6 +156,11 @@ def _planned_module_records(root, modules, seen_names):
             log.info("plan skipped %s", module.name)
             print(f"Skipped '{module.name}'.")
             continue
+        conflict = layout_conflict(root, spec_name)
+        if conflict and not destination.exists():
+            log.info("plan skipped layout %s", conflict)
+            print(f"Skipped {conflict}")
+            continue
         if spec_name in seen_names:
             relative = destination.relative_to(base).as_posix()
             log.info("plan skipped duplicate %s", relative)
@@ -257,6 +262,11 @@ def plan_command(root, description):
     for item in normalized:
         if item["exists"]:
             continue
+        conflict = layout_conflict(root, item["name"])
+        if conflict:
+            log.info("plan refused layout %s", conflict)
+            print(f"Skipped {conflict}")
+            continue
         uses = []
         for use in item["uses"]:
             if use not in available:
@@ -294,6 +304,11 @@ def _write_feature_updates(root, existing, proposal_modules, updates=None):
         if _module_is_pinned(item["name"]):
             log.info("add skipped pinned %s", item["name"])
             print(f"'{item['name']}' is pinned. It was not changed.")
+            continue
+        conflict = layout_conflict(root, item["name"])
+        if conflict:
+            log.info("add skipped layout %s", conflict)
+            print(f"Skipped {conflict}")
             continue
         uses = []
         for use in item["uses"]:
@@ -532,6 +547,11 @@ def apply_cycle_repair(root, records, members, known, repair):
     behavior = str(repair.behavior).strip()
     if shared is None or not behavior or shared in known:
         return False
+    conflict = layout_conflict(root, shared)
+    if conflict:
+        log.info("cycle refused layout %s", conflict)
+        print(f"Skipped {conflict}")
+        return False
     _spec_name, destination = module_output_path(root, shared)
     if destination is None or destination.exists():
         return False
@@ -679,6 +699,11 @@ def build_one(root, record):
     root = Path(root).resolve()
     spec_name = record["name"]
     if refuse_bootstrap(spec_name, "built"):
+        return
+    conflict = layout_conflict(root, spec_name)
+    if conflict:
+        log.info("build skipped layout %s", conflict)
+        print(f"Skipped {conflict}")
         return
     prose = record["behavior"]
     canonical = record["text"]

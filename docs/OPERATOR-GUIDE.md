@@ -125,7 +125,7 @@ uses: irc/parse
 Read a command and join a channel.
 ```
 
-Mechanicus does not write Python during `/plan`. It does not replace a `.module` file that is already there. It refuses a path outside the startup directory.
+Mechanicus does not write Python during `/plan`. It does not replace a `.module` file that is already there. It refuses a path outside the startup directory. It skips a new module name that would shadow a package directory (for example `cli` when `cli/` exists) or that would nest under an existing top-level `.py` module file.
 
 Jev reads the plan after the writing model returns it. Jev checks each behavior in the description. A score below 0.7 means no module performs that behavior. The writing model adds the missing module. Mechanicus writes each recommended module.
 
@@ -144,7 +144,7 @@ Jev reads the modules after that change. A score below 0.7 sends the change back
 1. Enter `/build`.
 2. Read the result for each module.
 
-`/build` reads every `.module` file in the startup directory. It does not read files under `.mechanicus`. It builds a module after each module that file uses. For a new behavior, Mechanicus writes the tests, writes the code, runs pytest, and writes the adopted module.
+`/build` reads every `.module` file in the startup directory. It does not read files under `.mechanicus`. It builds a module after each module that file uses. For a new behavior, Mechanicus writes the tests, writes the code, runs pytest, and writes the adopted module. It skips a module whose path would shadow a package directory or nest under an existing top-level `.py` module file.
 
 When modules use each other, Mechanicus adds one module for the shared job. The modules in the cycle do not use each other. Those modules can use the new module. Mechanicus writes the new file, then continues the build. When Mechanicus cannot use that new module, it removes `uses:` lines until the modules do not use each other. Mechanicus does not change a pinned module in that cycle.
 
@@ -178,7 +178,7 @@ If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. I
 
 ## Write files
 
-`/generate` writes adopted code into the startup directory. The specification name is the relative path. `pkg/mod` becomes `pkg/mod.py`. Mechanicus adds `.py` when the name does not already end with `.py`. It creates parent directories. It refuses a path outside the startup directory.
+`/generate` writes adopted code into the startup directory. The specification name is the relative path. `pkg/mod` becomes `pkg/mod.py`. Mechanicus adds `.py` when the name does not already end with `.py`. It creates parent directories. It refuses a path outside the startup directory. It skips a name that would shadow a package directory or nest under an existing top-level `.py` module file.
 
 `/generate` also writes the tests under `tests/`. `greet` writes `tests/test_greet.py`. `pkg/mod` writes `tests/pkg/test_pkg_mod.py`. The file basename includes the module path so plain pytest can collect nested tests without import-mode flags. The written tests import that module as `impl`. A local name in the test stays as it is. The check remains in the project database.
 

@@ -84,6 +84,8 @@ Do not put those jobs in one module.
 A module may call other modules in this plan. List those names in uses.
 uses is empty when the module calls no other module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
+Do not use a top-level name that matches an existing package directory. Nest under that package instead.
+Do not use a child path under a name that already exists as a top-level .py module file.
 The behavior is your recommendation for that module. Write one or more sentences the user can edit.
 Do not write Python.
 
@@ -110,6 +112,8 @@ Add one module for each missing behavior.
 Do not repeat a module name that already exists.
 A new module may call a module already in the plan. List that name in uses.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
+Do not use a top-level name that matches an existing package directory. Nest under that package instead.
+Do not use a child path under a name that already exists as a top-level .py module file.
 The behavior is one or more sentences the user can edit.
 Do not write Python.
 
@@ -127,6 +131,8 @@ A module that calls the new module must name it in uses.
 Do not return a module that stays the same.
 Do not remove a behavior that is already in a module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
+Do not use a top-level name that matches an existing package directory. Nest under that package instead.
+Do not use a child path under a name that already exists as a top-level .py module file.
 The behavior is one or more sentences the user can edit.
 Do not write Python.
 
@@ -143,6 +149,8 @@ A listed module must not use another listed module.
 A listed module may use the new module. Name the new module in uses when it calls that job.
 The new module must not use a listed module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
+Do not use a top-level name that matches an existing package directory. Nest under that package instead.
+Do not use a child path under a name that already exists as a top-level .py module file.
 The behavior is one or more sentences the user can edit.
 Do not write Python.
 

@@ -19,6 +19,45 @@ def adopted_output_path(root, name):
     return destination
 
 
+def layout_conflict(root, name):
+    """Return a message if name would shadow a package or module file.
+
+    Writing name.py conflicts when name/ already exists as a directory.
+    Writing name/child.py conflicts when name.py already exists as a file.
+    """
+    base = code_root(root)
+    relative = Path(str(name))
+    if relative.suffix.lower() in (".py", ".module"):
+        relative = relative.with_suffix("")
+    if relative.is_absolute() or any(part in ("", "..") for part in relative.parts):
+        return None
+    try:
+        package_dir = (base / relative).resolve()
+        package_dir.relative_to(base)
+    except ValueError:
+        return None
+    if package_dir.is_dir():
+        try:
+            shown = package_dir.relative_to(base).as_posix()
+        except ValueError:
+            shown = str(package_dir)
+        return f"'{name}' conflicts with package directory {shown}/"
+    for length in range(1, len(relative.parts)):
+        parent = Path(*relative.parts[:length])
+        parent_file = (base / parent).with_suffix(".py").resolve()
+        try:
+            parent_file.relative_to(base)
+        except ValueError:
+            continue
+        if parent_file.is_file():
+            try:
+                shown = parent_file.relative_to(base).as_posix()
+            except ValueError:
+                shown = str(parent_file)
+            return f"'{name}' conflicts with module file {shown}"
+    return None
+
+
 def module_import(name):
     relative = Path(name)
     if relative.suffix == ".py":

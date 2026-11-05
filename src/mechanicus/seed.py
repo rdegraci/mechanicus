@@ -541,6 +541,23 @@ Output fields:
 - explanation: one short paragraph
 """
 
+_FEATURE_INSTRUCTIONS = """You add one feature to an existing application.
+
+Change only the modules that must perform the feature or call a module that performs it.
+Keep the current behavior of each module you change, and add the feature.
+When the feature is a new job, add one new module for that job.
+A module that calls the new module must name it in uses.
+Do not return a module that stays the same.
+Do not remove a behavior that is already in a module.
+The name is a relative path with no spaces and no file extension. Use slashes for directories.
+The behavior is one or more sentences the user can edit.
+Do not write Python.
+
+Output fields:
+- modules: only the modules that change, and any new module
+- explanation: one short paragraph
+"""
+
 _CYCLE_INSTRUCTIONS = """You split modules that use each other so a build can order them.
 
 Add one new module for the job those modules share.
@@ -685,6 +702,26 @@ def plan_application(description: str) -> ApplicationPlan:
     )
 
 
+def propose_feature(feature: str, modules, failed=None) -> ApplicationPlan:
+    note = ""
+    if failed:
+        note = (
+            "\n\nThe last change did not perform the feature.\n"
+            f"{_plan_state(feature, failed, 'Last change')}\n\n"
+            "Change the modules so that one of them performs the feature.\n"
+            "Keep the current behavior of each module you change."
+        )
+    return _request_generation(
+        f"{_plan_state(feature, modules, 'Feature')}\n\n"
+        "Add this feature to the modules that should perform it.\n"
+        "Keep the current behavior of each module you change.\n"
+        "Return only the modules that change, and any new module."
+        f"{note}",
+        _FEATURE_INSTRUCTIONS,
+        ApplicationPlan,
+    )
+
+
 def repair_cycle(members) -> CycleRepair:
     listed = ", ".join(sorted(record["name"] for record in members))
     blocks = []
@@ -764,8 +801,8 @@ def ask_jev(state, questions):
     return answers
 
 
-def _plan_state(description, modules):
-    blocks = [f"Application description:\n{str(description).strip()}"]
+def _plan_state(description, modules, heading="Application description"):
+    blocks = [f"{heading}:\n{str(description).strip()}"]
     for item in modules:
         lines = [f"uses: {use}" for use in item["uses"]]
         block = f"--- {item['name']} ---\n"
@@ -796,6 +833,28 @@ def missing_behaviors(description, modules, parts):
             missing.append(part)
             print(f"No module performs this behavior ({probability:.2f}): {part}")
     return missing
+
+
+def feature_score(feature, modules):
+    """Return the probability that a module performs the feature.
+
+    Return None when the API key is empty.
+    """
+    answers = ask_jev(
+        _plan_state(feature, modules, "Feature"),
+        {
+            "feature": {
+                "type": "noul",
+                "instructions": f"Does at least one module perform this feature: {feature}?",
+            },
+        },
+    )
+    if answers is None:
+        _note_jev_skipped()
+        return None
+    probability = _noul(answers, "feature")
+    log.info("jev feature %.2f %s", probability, feature)
+    return probability
 
 
 def weak_call_tests(behavior, tests, check, required):
@@ -1782,6 +1841,87 @@ def plan_command(root, description):
         print("No new module files.")
 
 
+def _merge_records(existing, updates):
+    by_name = {item["name"]: item for item in existing}
+    for item in updates:
+        if _module_is_pinned(item["name"]):
+            continue
+        by_name[item["name"]] = item
+    return list(by_name.values())
+
+
+def _write_feature_updates(root, existing, proposal_modules, updates=None):
+    if updates is None:
+        updates = _planned_module_records(root, proposal_modules, set())
+    names = {item["name"] for item in existing} | {item["name"] for item in updates}
+    wrote = False
+    for item in updates:
+        if _module_is_pinned(item["name"]):
+            log.info("add skipped pinned %s", item["name"])
+            print(f"'{item['name']}' is pinned. It was not changed.")
+            continue
+        uses = []
+        for use in item["uses"]:
+            if use not in names:
+                log.info("add removed uses %s -> %s", item["name"], use)
+                print(f"Removed uses: {use} from {item['name']}. The plan has no {use} module.")
+                continue
+            uses.append(use)
+        text = format_module_text(uses, item["behavior"])
+        write_text_file(item["path"], text)
+        wrote = True
+        action = "updated" if item["exists"] else "added"
+        log.info("add %s %s", action, item["relative"])
+        print(f"\n--- {item['relative']} ---")
+        print(text)
+    return wrote
+
+
+def add_command(root, feature):
+    log.info("add %s", feature)
+    root = Path(root).resolve()
+    existing = module_records(root)
+    if not existing:
+        log.info("add found no module files")
+        print("No module files.")
+        return
+    print("Adding...")
+    try:
+        proposal = propose_feature(feature, existing)
+    except Exception as error:
+        log.exception("add failed")
+        print(f"Error: {error}")
+        return
+    if str(proposal.explanation).strip():
+        print(proposal.explanation.strip())
+    preview_updates = []
+    try:
+        preview_updates = _planned_module_records(root, proposal.modules, set())
+        score = feature_score(feature, _merge_records(existing, preview_updates))
+    except Exception as error:
+        log.exception("jev feature failed")
+        print(f"Error: {error}")
+        print("Jev did not judge the feature.")
+        score = None
+    chosen = proposal
+    if score is not None and score < _JEV_YES:
+        print(f"Feature probability is {score:.2f}.")
+        print("Mechanicus asks for another change.")
+        try:
+            chosen = propose_feature(feature, existing, preview_updates)
+        except Exception as error:
+            log.exception("add repair failed")
+            print(f"Error: {error}")
+            chosen = proposal
+        if str(chosen.explanation).strip():
+            print(chosen.explanation.strip())
+    prepared = preview_updates if chosen is proposal else None
+    if _write_feature_updates(root, existing, chosen.modules, prepared):
+        print("\nEdit the module files, then enter /build.")
+    else:
+        print("No module changes.")
+
+
 def module_records(root):
     root = Path(root).resolve()
     records = []
@@ -2178,6 +2318,7 @@ def repl():
         print("Seed REPL. Commands:")
         print("  /spec <name> <behavior>     - store a spec, write failing tests, then generate code")
         print("  /plan <description>         - write a .module file for each recommended module")
+        print("  /add <feature>              - add a feature to the modules that perform it")
         print("  /build                      - build each .module file and write the adopted code")
         print("  /pin <name>                 - pin a spec so it cannot be regenerated or overwritten")
         print("  /unpin <name>               - clear that pin")
@@ -2210,6 +2351,13 @@ def repl():
                     print("Enter an application description.")
                 else:
                     plan_command(root, description)
+            elif cmd == "/add":
+                feature = line.split(maxsplit=1)[1].strip() if " " in line else ""
+                if not feature:
+                    log.info("add refused: no feature")
+                    print("Enter a feature.")
+                else:
+                    add_command(root, feature)
             elif cmd == "/build" and len(parts) == 1:
                 build_command(root)
             elif cmd == "/pin" and len(parts) == 2:

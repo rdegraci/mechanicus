@@ -51,3 +51,11 @@ Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its
 4. Enter `/quit`.
 
 `/build` writes one `.py` file for each module that passes. It also writes the tests under `tests/`. A module that calls another module starts with `uses:` and that module name. When modules use each other, `/build` adds one module for the shared job and then builds. Jev checks that the modules cover the description. The writing model adds a missing module.
+
+## Add a feature
+
+1. Enter `/add` and the feature.
+2. Read each changed `.module` file.
+3. Enter `/build`.
+
+`/add` updates the modules that perform the feature. A module that does not need the feature stays as it is.

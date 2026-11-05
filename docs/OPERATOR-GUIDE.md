@@ -31,6 +31,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | --- | --- |
 | `/spec <name> <behavior>` | Stores the behavior, writes failing tests, then requests code. |
 | `/plan <description>` | Writes one `.module` file for each recommended module. |
+| `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/build` | Builds each `.module` file and writes the adopted code. |
 | `/show <name>` | Prints the specification, the adopted generation, and a newer candidate. |
 | `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. |
@@ -79,6 +80,16 @@ Read a command and join a channel.
 Mechanicus does not write Python during `/plan`. It does not replace a `.module` file that is already there. It refuses a path outside the startup directory.
 
 Jev reads the plan after the writing model returns it. Jev checks each behavior in the description. A score below 0.7 means no module performs that behavior. The writing model adds the missing module. Mechanicus writes each recommended module.
+
+## Add
+
+1. Enter `/add` and the feature.
+2. Read each changed `.module` file.
+3. Enter `/build`.
+
+`/add` reads the current `.module` files. The writing model changes only the modules that perform the feature. It keeps the current behavior and adds the feature. A new job gets a new `.module` file. The module that calls it gains a `uses:` line.
+
+Jev reads the modules after that change. A score below 0.7 sends the change back to the writing model once. Mechanicus writes that change. A module that does not need the feature stays as it is. Mechanicus does not change a pinned module.
 
 ## Build
 

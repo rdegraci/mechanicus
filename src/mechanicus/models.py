@@ -43,6 +43,19 @@ class DraftTurn(BaseModel):
     read_paths: list[str] = Field(default_factory=list)
 
 
+class SuggestionItem(BaseModel):
+    title: str
+    detail: str
+    tag: str = "feature"
+
+
+class SuggestionsResult(BaseModel):
+    purpose: str
+    suggestions: list[SuggestionItem] = Field(default_factory=list)
+    bugs: list[SuggestionItem] = Field(default_factory=list)
+    explanation: str = ""
+
+
 class DraftSession:
     def __init__(self, kind, description="", inventory="", reads=None, transcript=None):
         self.kind = kind

@@ -31,11 +31,14 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | --- | --- |
 | `/greenfield [note]` | Starts a draft of an application description for a new app. |
 | `/brownfield [note]` | Starts a draft from the codebase. The model can read project files. |
+| `/brownfield <n>` | Starts brownfield using suggestion number `n` from `/suggestions`. |
+| `/suggestions` | Analyzes the tree, states its purpose, and lists improvements plus bugs and issues. |
 | `/accept` | Saves the draft, leaves drafting, and runs `/plan`. |
 | `/abort` | Leaves drafting without saving a new description and without `/plan`. |
 | `/spec <name> <behavior>` | Stores the behavior, writes failing tests, then requests code. |
 | `/plan [description]` | Writes one `.module` file for each recommended module. |
 | `/add <feature>` | Adds a feature to the modules that perform it. |
+| `/add <n>` | Runs `/add` with suggestion number `n` when `.module` files exist. |
 | `/build` | Builds each `.module` file and writes the adopted code. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
 | `/specs` | Lists each specification with the pin flag and the adopted generation. |
@@ -96,6 +99,14 @@ A generation number starts at 1. `/show` prints the number. Use that number with
 `/brownfield` scans text source files under the startup directory. It skips `.git`, `.venv`, `.mechanicus`, dependency trees, binaries, and `.env` files. The model can request file reads while you talk. Mechanicus prints those paths as it reads them. `/brownfield` also loads a saved description when one exists, then can revise it from the scan.
 
 The draft is only the application description. It does not write `.module` files or Python. `/accept` prints the description, saves it through `/plan`, then tells you to enter `/build` or to enter `/greenfield` or `/brownfield` again. `/abort` keeps the previous `application.txt` and modules as they are.
+
+## Suggestions
+
+1. Enter `/suggestions` in an existing project.
+2. Read the purpose and the numbered list.
+3. Enter `/brownfield` and a number to draft from that item, or enter `/add` and a number when module files already exist.
+
+`/suggestions` scans the startup tree. It writes `.mechanicus/suggestions.txt`. It does not run `/plan` or `/build`. It prints two sections: suggestions and bugs and issues. Suggestion tags are `feature`, `integrate`, `docs`, or `packaging`. Bug tags are `bug` or `issue`. Numbers continue across both sections, so `/brownfield <n>` and `/add <n>` work for either kind. `/add <n>` refuses when there are no `.module` files. Use `/brownfield <n>` in that case. An unknown number asks you to run `/suggestions` again.
 
 ## Plan
 

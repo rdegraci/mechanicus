@@ -382,7 +382,10 @@ def print_startup_hints(root):
     saved = load_application_description(root)
     has_modules = bool(find_module_files(root))
     if saved or has_modules:
-        print("Enter /greenfield or /brownfield to revise the application description.")
+        print(
+            "Enter /greenfield or /brownfield to revise the application description. "
+            "Enter /suggestions for numbered improvements."
+        )
     else:
         print(
             "New app: /greenfield. Existing code: /brownfield. "

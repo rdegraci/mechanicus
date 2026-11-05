@@ -20,9 +20,17 @@ from mechanicus.lifecycle import (
     spec_command,
     test_command,
 )
-from mechanicus.plan_build import add_command, build_command, plan_command
+from mechanicus.plan_build import add_command, build_command, find_module_files, plan_command
 from mechanicus.seed_import import import_source
 from mechanicus.store import init_db, pin_spec, unpin_spec
+from mechanicus.suggestions import get_suggestion, suggestions_command
+
+
+def _suggestion_index(text):
+    raw = str(text).strip()
+    if raw.isdigit():
+        return int(raw)
+    return None
 
 
 def repl():
@@ -34,12 +42,13 @@ def repl():
     try:
         print("Seed REPL. Commands:")
         print("  /greenfield [note]          - draft an application description for a new app")
-        print("  /brownfield [note]          - draft a description from the codebase")
+        print("  /brownfield [note|n]        - draft from the codebase, or open suggestion n")
+        print("  /suggestions                - analyze the tree and list numbered improvements")
         print("  /accept                     - save the draft, exit drafting, and run /plan")
         print("  /abort                      - leave drafting without planning")
         print("  /spec <name> <behavior>     - store a spec, write failing tests, then generate code")
         print("  /plan [description]         - write a .module file for each recommended module")
-        print("  /add <feature>              - add a feature to the modules that perform it")
+        print("  /add <feature|n>            - add a feature, or apply suggestion n")
         print("  /build                      - build each .module file and write the adopted code")
         print("  /import <name>              - import package source as adopted and pinned")
         print("  /specs                      - list specifications with pin and adopted generation")
@@ -98,7 +107,19 @@ def repl():
                 draft = start_greenfield(root, note)
             elif cmd == "/brownfield":
                 note = line.split(maxsplit=1)[1].strip() if " " in line else ""
-                draft = start_brownfield(root, note)
+                index = _suggestion_index(note) if note else None
+                if index is not None:
+                    item, error = get_suggestion(root, index)
+                    if error:
+                        log.info("brownfield refused: %s", error)
+                        print(error)
+                    else:
+                        print(f"Using suggestion {index}: {item['text']}")
+                        draft = start_brownfield(root, item["text"])
+                else:
+                    draft = start_brownfield(root, note)
+            elif cmd == "/suggestions" and len(parts) == 1:
+                suggestions_command(root)
             elif cmd in ("/accept", "/abort"):
                 log.info("%s refused: not drafting", cmd)
                 print("Enter /greenfield or /brownfield first.")
@@ -117,9 +138,23 @@ def repl():
                 feature = line.split(maxsplit=1)[1].strip() if " " in line else ""
                 if not feature:
                     log.info("add refused: no feature")
-                    print("Enter a feature.")
+                    print("Enter a feature, or /add <n> after /suggestions.")
                 else:
-                    add_command(root, feature)
+                    index = _suggestion_index(feature)
+                    if index is not None:
+                        if not find_module_files(root):
+                            log.info("add refused: no module files for suggestion")
+                            print("No module files. Enter /brownfield <n> or /plan first.")
+                        else:
+                            item, error = get_suggestion(root, index)
+                            if error:
+                                log.info("add refused: %s", error)
+                                print(error)
+                            else:
+                                print(f"Using suggestion {index}: {item['text']}")
+                                add_command(root, item["text"])
+                    else:
+                        add_command(root, feature)
             elif cmd == "/build" and len(parts) == 1:
                 build_command(root)
             elif cmd == "/import" and len(parts) == 2:

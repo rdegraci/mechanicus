@@ -45,10 +45,13 @@ Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its
 
 ## Plan an application
 
-1. Enter `/plan` and a description of the application.
-2. Edit a `.module` file when you want a different behavior.
-3. Enter `/build`.
-4. Enter `/quit`.
+1. Enter `/greenfield` for a new app, or `/brownfield` when the project already has code.
+2. Talk until the description is ready, then enter `/accept`.
+3. Edit a `.module` file when you want a different behavior.
+4. Enter `/build`.
+5. Enter `/quit`.
+
+You can also enter `/plan` and a description. `/accept` runs `/plan` with the draft. `/abort` leaves the draft without planning. `/brownfield` can read project files while you talk.
 
 `/build` writes one `.py` file for each module that passes. It also writes the tests under `tests/`. A module that calls another module starts with `uses:` and that module name. When modules use each other, `/build` adds one module for the shared job and then builds. Jev checks that the modules cover the description. The writing model adds a missing module.
 

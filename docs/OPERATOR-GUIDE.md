@@ -29,8 +29,12 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 
 | Command | Effect |
 | --- | --- |
+| `/greenfield [note]` | Starts a draft of an application description for a new app. |
+| `/brownfield [note]` | Starts a draft from the codebase. The model can read project files. |
+| `/accept` | Saves the draft, leaves drafting, and runs `/plan`. |
+| `/abort` | Leaves drafting without saving a new description and without `/plan`. |
 | `/spec <name> <behavior>` | Stores the behavior, writes failing tests, then requests code. |
-| `/plan <description>` | Writes one `.module` file for each recommended module. |
+| `/plan [description]` | Writes one `.module` file for each recommended module. |
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/build` | Builds each `.module` file and writes the adopted code. |
 | `/show <name>` | Prints the specification, the adopted generation, and a newer candidate. |
@@ -43,6 +47,10 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/run <name>` | Loads the adopted code and calls `main` when it exists. |
 | `/logfile` | Prints the path of the session log file. |
 | `/quit` | Stops Mechanicus. |
+
+Mechanicus starts in command mode. When `.mechanicus/application.txt` or a `.module` file is already present, it tells you that `/greenfield` or `/brownfield` can revise the description. When neither is present, it points you to `/greenfield`, `/brownfield`, `/spec`, or `/plan`.
+
+`/accept` and `/abort` work only while you draft. Other slash commands do not run during a draft. Enter free text to talk to the model.
 
 ## Specifications
 
@@ -60,14 +68,26 @@ Mechanicus does not adopt the new generation yet. Mechanicus does not replace a 
 
 A generation number starts at 1. `/show` prints the number. Use that number with `/revert`.
 
+## Draft
+
+1. Enter `/greenfield` for a new app, or `/brownfield` for an existing codebase.
+2. Talk with the model until the application description is ready.
+3. Enter `/accept` to save the description and run `/plan`, or enter `/abort` to leave.
+
+`/greenfield` loads `.mechanicus/application.txt` when that file exists. The model does not read the codebase.
+
+`/brownfield` scans text source files under the startup directory. It skips `.git`, `.venv`, `.mechanicus`, dependency trees, binaries, and `.env` files. The model can request file reads while you talk. Mechanicus prints those paths as it reads them. `/brownfield` also loads a saved description when one exists, then can revise it from the scan.
+
+The draft is only the application description. It does not write `.module` files or Python. `/accept` prints the description, saves it through `/plan`, then tells you to enter `/build` or to enter `/greenfield` or `/brownfield` again. `/abort` keeps the previous `application.txt` and modules as they are.
+
 ## Plan
 
-1. Enter `/plan` and the application description.
+1. Enter `/plan` and the application description, or enter `/accept` after a draft.
 2. Read each `.module` file.
 3. Edit a file when the recommendation is wrong.
 4. Enter `/build`.
 
-`/plan` asks the model for the modules. It gives each job its own module. It writes one `.module` file for each module. The file text is that recommendation. `irc/parse.module` is the module `irc/parse`. Mechanicus saves the description in `.mechanicus/application.txt`.
+`/plan` with no description uses `.mechanicus/application.txt` when that file exists. `/plan` asks the model for the modules. It gives each job its own module. It writes one `.module` file for each module. The file text is that recommendation. `irc/parse.module` is the module `irc/parse`. Mechanicus saves the description in `.mechanicus/application.txt`.
 
 A module that calls another module starts with `uses:` and that module name.
 

@@ -40,7 +40,7 @@ The first start copies `.env` and `config.yaml` into that directory. Mechanicus 
 
 `/generate greet` writes `greet.py` and `tests/test_greet.py` in the startup directory.
 
-Enter `/plan` and an application description. Mechanicus writes one `.module` file for each module. Edit a file when you want a different behavior. Enter `/build` to write the Python. When modules use each other, `/build` adds one module for the shared job before it writes the Python. Jev checks that the modules cover the description. The writing model adds a missing module. Enter `/add` and a feature to update the modules that perform it.
+Enter `/greenfield` to draft an application description for a new app. Enter `/brownfield` to draft one from the codebase and ask about the code. Enter `/accept` to save that draft and run `/plan`. Enter `/abort` to leave without planning. You can also enter `/plan` and a description. Mechanicus writes one `.module` file for each module. Edit a file when you want a different behavior. Enter `/build` to write the Python. When modules use each other, `/build` adds one module for the shared job before it writes the Python. Jev checks that the modules cover the description. The writing model adds a missing module. Enter `/add` and a feature to update the modules that perform it.
 
 You can also run the `mechanicus` command after install.
 

@@ -52,6 +52,7 @@ def repl():
         print("  /run <name>                 - run the adopted code for a spec")
         print("  /logfile                    - print the path to the session log file")
         print("  /quit                       - exit the REPL")
+        print("  /exit                       - exit the REPL")
         print_startup_hints(root)
         while True:
             try:
@@ -61,7 +62,7 @@ def repl():
             if not line:
                 continue
             log.info("command %s", line)
-            if line == "/quit":
+            if line in ("/quit", "/exit"):
                 break
 
             if draft is not None:

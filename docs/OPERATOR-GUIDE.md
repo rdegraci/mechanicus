@@ -50,6 +50,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/run <name>` | Loads the adopted code and calls `main` when it exists. |
 | `/logfile` | Prints the path of the session log file. |
 | `/quit` | Stops Mechanicus. |
+| `/exit` | Stops Mechanicus. |
 
 Mechanicus starts in command mode. When `.mechanicus/application.txt` or a `.module` file is already present, it tells you that `/greenfield` or `/brownfield` can revise the description. When neither is present, it points you to `/greenfield`, `/brownfield`, `/spec`, or `/plan`.
 

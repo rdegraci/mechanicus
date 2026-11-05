@@ -47,6 +47,8 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/revert <name> <generation>` | Adopts an earlier generation. |
 | `/generate` | Writes every adopted specification and its tests. |
 | `/generate <name>` | Writes that adopted specification and its tests. |
+| `/test` | Runs on-disk pytest with `PYTHONPATH` set to the startup directory. |
+| `/test <name>` | Runs the on-disk tests for that specification. |
 | `/run <name>` | Loads the adopted code and calls `main` when it exists. |
 | `/logfile` | Prints the path of the session log file. |
 | `/quit` | Stops Mechanicus. |
@@ -167,9 +169,18 @@ If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. I
 
 `/generate` writes adopted code into the startup directory. The specification name is the relative path. `pkg/mod` becomes `pkg/mod.py`. Mechanicus adds `.py` when the name does not already end with `.py`. It creates parent directories. It refuses a path outside the startup directory.
 
-`/generate` also writes the tests under `tests/`. `greet` writes `tests/test_greet.py`. `pkg/mod` writes `tests/pkg/test_mod.py`. The written tests import that module as `impl`. A local name in the test stays as it is. The check remains in the project database.
+`/generate` also writes the tests under `tests/`. `greet` writes `tests/test_greet.py`. `pkg/mod` writes `tests/pkg/test_pkg_mod.py`. The file basename includes the module path so plain pytest can collect nested tests without import-mode flags. The written tests import that module as `impl`. A local name in the test stays as it is. The check remains in the project database.
 
 `/generate` with no name writes every adopted specification.
+
+## Test
+
+1. Enter `/generate` when the tree needs the latest adopted files.
+2. Enter `/test`, or enter `/test` and a specification name.
+
+`/test` runs `python -m pytest` in the startup directory. It sets `PYTHONPATH` to that directory so imports match the generated layout. With a name, Mechanicus runs the matching file under `tests/` (the same path `/generate` writes). It prints the pytest output. It does not call the model. It does not adopt or repair.
+
+`/adopt` and `/refactor` still use the internal temp-directory harness. `/test` checks what is on disk.
 
 ## Run
 

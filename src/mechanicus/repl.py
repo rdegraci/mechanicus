@@ -18,6 +18,7 @@ from mechanicus.lifecycle import (
     run_adopted,
     show_spec,
     spec_command,
+    test_command,
 )
 from mechanicus.plan_build import add_command, build_command, plan_command
 from mechanicus.seed_import import import_source
@@ -49,6 +50,7 @@ def repl():
         print("  /revert <name> <generation> - adopt an earlier generation without generating")
         print("  /show <name>                - show the spec, the adopted rendering, and any newer candidate")
         print("  /generate [name]            - write adopted code and tests into the startup directory")
+        print("  /test [name]                - run on-disk pytest with PYTHONPATH=startup")
         print("  /run <name>                 - run the adopted code for a spec")
         print("  /logfile                    - print the path to the session log file")
         print("  /quit                       - exit the REPL")
@@ -156,6 +158,10 @@ def repl():
                 generate_command(root)
             elif cmd == "/generate" and len(parts) == 2:
                 generate_command(root, parts[1])
+            elif cmd == "/test" and len(parts) == 1:
+                test_command(root)
+            elif cmd == "/test" and len(parts) == 2:
+                test_command(root, parts[1])
             elif cmd == "/run" and len(parts) == 2:
                 run_adopted(parts[1])
             elif cmd == "/logfile" and len(parts) == 1:

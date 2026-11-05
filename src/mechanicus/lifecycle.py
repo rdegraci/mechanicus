@@ -1,6 +1,10 @@
 """Spec, adopt, revert, run, and generate lifecycle."""
+import os
 import re
+import subprocess
+import sys
 import types
+from pathlib import Path
 
 from mechanicus.bootstrap_guard import refuse_bootstrap
 from mechanicus.codegen import (
@@ -432,6 +436,55 @@ def generate_command(root, name=None):
         names = [name]
     for spec_name in names:
         write_adopted(root, spec_name)
+
+
+def test_command(root, name=None):
+    """Run on-disk pytest with PYTHONPATH set to the startup directory."""
+    root = Path(root).resolve()
+    log.info("test %s", name or "(all)")
+    if name is None:
+        tests_dir = root / "tests"
+        if not tests_dir.is_dir():
+            log.info("test refused: no tests directory")
+            print("No tests directory.")
+            return False
+        target = "tests"
+        print("Running pytest...")
+    else:
+        destination = test_output_path(root, name)
+        if destination is None:
+            log.info("test refused: bad name %s", name)
+            print(f"'{name}' is not a path inside the startup directory.")
+            return False
+        if not destination.is_file():
+            log.info("test refused: missing %s", destination)
+            print(f"No test file for '{name}'. Expected {destination.relative_to(root).as_posix()}.")
+            return False
+        target = destination.relative_to(root).as_posix()
+        print(f"Running pytest for {target}...")
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(root) if not existing else f"{root}{os.pathsep}{existing}"
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", target, "-q"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n")
+    log.info("pytest exit %s", result.returncode)
+    if result.returncode == 0:
+        print("Tests passed.")
+        return True
+    if result.returncode == 5:
+        print("No tests collected.")
+        return False
+    print("Tests failed.")
+    return False
 
 
 def _print_tests(tests, check, explanation):

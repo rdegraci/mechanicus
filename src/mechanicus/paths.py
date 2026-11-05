@@ -36,7 +36,11 @@ def test_output_path(root, name):
     base = code_root(root)
     relative = code_path.relative_to(base)
     startup = Path(root).resolve()
-    destination = (startup / "tests" / relative.parent / f"test_{relative.stem}.py").resolve()
+    # Unique basenames so plain pytest works without --import-mode=importlib.
+    # cli/main -> tests/cli/test_cli_main.py (not tests/cli/test_main.py).
+    parts = relative.with_suffix("").parts
+    filename = "test_" + "_".join(parts) + ".py"
+    destination = (startup / "tests" / relative.parent / filename).resolve()
     try:
         destination.relative_to(startup)
     except ValueError:

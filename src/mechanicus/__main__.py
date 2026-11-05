@@ -1,8 +1,4 @@
-from mechanicus.seed import repl
-
-
-def main() -> None:
-    repl()
+from mechanicus.bootstrap import main
 
 
 if __name__ == "__main__":

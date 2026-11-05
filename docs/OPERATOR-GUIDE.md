@@ -37,6 +37,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/plan [description]` | Writes one `.module` file for each recommended module. |
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/build` | Builds each `.module` file and writes the adopted code. |
+| `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
 | `/show <name>` | Prints the specification, the adopted generation, and a newer candidate. |
 | `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. |
 | `/pin <name>` | Pins the specification and the latest code. |
@@ -146,7 +147,7 @@ If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. I
 1. If the specification is pinned, enter `/unpin` and the name.
 2. Enter `/revert`, the name, and the generation number.
 
-`/revert` does not call the model. `/revert` does not run pytest. Mechanicus refuses `/revert` while the specification is pinned.
+`/revert` does not call the model. `/revert` does not run pytest. Mechanicus refuses `/revert` while the specification is pinned. After `/revert`, enter `/generate` and the name so the disk file matches the database.
 
 ## Write files
 
@@ -170,6 +171,14 @@ If the specification is pinned, Mechanicus does not replace a module that this p
 4. Start Mechanicus again.
 
 The example file is `src/mechanicus/config.yaml.example`. The default model is `gpt-4o`. The default reasoning effort is `medium`. The default Jev model is `jev-1.14.0`. `/spec` sends the writing model and the reasoning effort from `config.yaml`.
+
+`package_root` is a relative path under the startup directory. When it is empty, Mechanicus writes `.py` and `.module` files at the startup directory. When it is set (for example `src/mechanicus`), Mechanicus writes those files under that directory. Spec names stay short (`jev`, not `src/mechanicus/jev`). Tests still go under `tests/` at the startup directory.
+
+## Self-host
+
+To run Mechanicus on this repository, read [SELF-MODIFY-GUIDE.md](SELF-MODIFY-GUIDE.md).
+
+Set `package_root` to `src/mechanicus`. Start from the repository root. Enter `/import` for each leaf you will change. Change one leaf at a time. After `/revert`, enter `/generate`. Run `python -m mechanicus.smoke` after a generate step.
 
 ## Secrets
 

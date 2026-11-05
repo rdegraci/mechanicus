@@ -1,0 +1,6 @@
+uses: jev
+
+Call the OpenAI Responses API to write tests, code, plans, feature updates, and cycle repairs.
+Use structured pydantic result models.
+Read the writing model and reasoning effort from mechanicus.config.
+Use mechanicus.jev._plan_state when a prompt needs the current modules.

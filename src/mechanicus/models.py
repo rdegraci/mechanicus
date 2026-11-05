@@ -1,0 +1,52 @@
+"""Pydantic models and draft session state."""
+from pydantic import BaseModel, Field
+
+
+class TestsResult(BaseModel):
+    tests: str
+    check: str
+    explanation: str
+
+
+class CodeResult(BaseModel):
+    code: str
+    explanation: str
+
+
+class PlannedModule(BaseModel):
+    name: str
+    behavior: str
+    uses: list[str] = Field(default_factory=list)
+
+
+class ApplicationPlan(BaseModel):
+    modules: list[PlannedModule]
+    explanation: str
+
+
+class BehaviorParts(BaseModel):
+    parts: list[str]
+    explanation: str
+
+
+class CycleRepair(BaseModel):
+    name: str
+    behavior: str
+    uses: list[str] = Field(default_factory=list)
+    modules: list[PlannedModule]
+    explanation: str
+
+
+class DraftTurn(BaseModel):
+    reply: str
+    description: str = ""
+    read_paths: list[str] = Field(default_factory=list)
+
+
+class DraftSession:
+    def __init__(self, kind, description="", inventory="", reads=None, transcript=None):
+        self.kind = kind
+        self.description = description
+        self.inventory = inventory
+        self.reads = reads if reads is not None else {}
+        self.transcript = transcript if transcript is not None else []

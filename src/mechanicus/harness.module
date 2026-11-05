@@ -1,0 +1,4 @@
+Run pytest in a temporary directory against impl.py with unit tests and a check.
+Classify empty-impl results as red, pass, or broken.
+Detect adopted modules that code imports but never calls.
+Rewrite disk tests so they import the real module name as impl.

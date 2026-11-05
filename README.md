@@ -48,3 +48,8 @@ You can also run the `mechanicus` command after install.
 
 - [Quick start](docs/QUICK-START.md) shows install, the API key, and one specification.
 - [Operator guide](docs/OPERATOR-GUIDE.md) lists every command and the pin, adopt, revert, write, and run rules.
+- [Self-modify guide](docs/SELF-MODIFY-GUIDE.md) shows how to run Mechanicus on this repository.
+
+## Package layout
+
+The runtime is split under `src/mechanicus/`. Bootstrap modules (`bootstrap`, `config`, `store`, `paths`, and related guards) stay hand-written. Regenerable leaves have matching `.module` files. Set `package_root: src/mechanicus` when you self-host. Enter `/import <name>` to seed SQLite from disk.

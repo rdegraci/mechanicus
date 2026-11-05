@@ -1,0 +1,7 @@
+uses: codegen
+uses: jev
+
+Plan, add, and build .module applications.
+Parse and write module files under the configured code root.
+Cover missing behaviors with Jev, repair cycles, and build modules in dependency order.
+Call mechanicus.lifecycle for spec, adopt, and write_adopted during build.

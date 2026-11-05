@@ -7,3 +7,6 @@ model: gpt-4o
 reasoning_effort: medium
 repair_attempts: 3
 jev_model: jev-1.14.0
+# Relative to the startup directory. Empty means write .py and .module
+# files at the startup directory. Self-host example: src/mechanicus
+package_root: ""

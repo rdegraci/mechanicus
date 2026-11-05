@@ -1,0 +1,4 @@
+Ask TypeSafe Jev yes-or-no questions for plan coverage, feature coverage, and call checks.
+Read the Jev model name and the logger from mechanicus.config.
+Use mechanicus.paths.module_import when a required module needs an import label.
+Return None from ask helpers when TYPESAFE_API_KEY is empty, and print one skip notice.

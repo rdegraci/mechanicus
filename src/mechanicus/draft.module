@@ -1,0 +1,5 @@
+uses: codegen
+
+Collaborate on an application description in greenfield or brownfield mode.
+In brownfield mode, scan the startup tree, read requested files, and keep a description draft.
+Accept runs /plan. Abort leaves without planning.

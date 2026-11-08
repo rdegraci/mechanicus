@@ -78,13 +78,13 @@ The pytest harness still loads generated code as `impl` in a temporary directory
 
 1. Enter `/unpin` and the name when the specification is pinned.
 2. Enter `/revert`, the name, and the generation number from `/show`.
-3. Enter `/generate` and the name so disk matches the database.
+3. Confirm `/show` reports `sync=ok`, or enter `/generate` and the name if disk was not updated.
 4. Enter `/quit`.
 5. Run `python -m mechanicus.smoke`.
 6. Start Mechanicus again and check the leaf.
 7. Enter `/pin` and the name.
 
-`/revert` does not run pytest. `/revert` does not write disk by itself.
+`/revert` does not run pytest. `/revert` writes disk by default. Use `--db-only` only when you want the database change without a disk write.
 
 ### Git restore
 
@@ -103,7 +103,7 @@ The pytest harness still loads generated code as `impl` in a temporary directory
 | `/pin <name>` | Freeze the leaf after a good change. |
 | `/show <name>` | Read behavior, pin flag, adopted code, and generation numbers. |
 | `/generate <name>` | Write adopted code (and tests) under `package_root`. |
-| `/revert <name> <n>` | Point adopt at an earlier generation. Then `/generate`. |
+| `/revert <name> <n>` | Point adopt at an earlier generation and write disk. |
 | `/build` | Build every `.module` under the code root. Skip pinned leaves. Refuse bootstrap names. |
 | `/brownfield` | Inspect this repository while you draft a description. Do not accept a plan that rebuilds bootstrap modules. |
 
@@ -113,7 +113,7 @@ The pytest harness still loads generated code as `impl` in a temporary directory
 - Keep bootstrap modules out of `/build` and `/import`. The guard refuses those names.
 - Change one leaf per loop.
 - Restart the process after `/generate` before you trust the change.
-- After `/revert`, always enter `/generate`.
+- After `/revert`, confirm `sync=ok` (or pass `--db-only` on purpose).
 - Keep git clean enough to restore a leaf file if SQLite and disk disagree.
 
 ## Smoke check

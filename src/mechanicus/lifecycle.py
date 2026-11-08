@@ -107,14 +107,51 @@ def _print_generation(spec_id, generation, heading):
             print(str(artifact["content"]).rstrip("\n"))
 
 
-def show_spec(name):
+def _normalize_text(text):
+    text = str(text)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def disk_sync_status(root, name):
+    """Compare adopted artifacts to on-disk files write_adopted would use.
+
+    Returns one of: none, missing, differ, ok.
+    """
+    root = Path(root).resolve()
+    spec = get_spec(name)
+    if spec is None:
+        return "none"
+    code = get_adopted_artifact(spec["id"], "code")
+    if code is None or not str(code["content"]).strip():
+        return "none"
+    destination = adopted_output_path(root, name)
+    if destination is None or not destination.is_file():
+        return "missing"
+    if destination.read_text() != _normalize_text(code["content"]):
+        return "differ"
+    tests = get_adopted_artifact(spec["id"], "tests")
+    if tests is not None and str(tests["content"]).strip():
+        test_destination = test_output_path(root, name)
+        if test_destination is None or not test_destination.is_file():
+            return "differ"
+        expected = _normalize_text(tests_for_disk(tests["content"], name))
+        if test_destination.read_text() != expected:
+            return "differ"
+    return "ok"
+
+
+def show_spec(name, root=None):
     log.info("show %s", name)
+    root = Path(root).resolve() if root is not None else startup_dir()
     spec = get_spec(name)
     if spec is None:
         log.info("show refused: spec not found")
         print("Not found.")
         return
-    print(f"Spec: {spec['behavior']} (pinned={bool(spec['pinned'])})")
+    sync = disk_sync_status(root, name)
+    print(f"Spec: {spec['behavior']} (pinned={bool(spec['pinned'])} sync={sync})")
     adopted = get_adopted_artifact(spec["id"], "code")
     latest = get_latest_artifact(spec["id"], "code")
     if adopted is None:
@@ -140,8 +177,9 @@ def show_spec(name):
         )
 
 
-def list_specs():
+def list_specs(root=None):
     log.info("specs")
+    root = Path(root).resolve() if root is not None else startup_dir()
     names = list_spec_names()
     if not names:
         print("No specifications.")
@@ -152,7 +190,8 @@ def list_specs():
         pinned = "yes" if spec is not None and spec["pinned"] else "no"
         adopted = get_adopted_artifact(spec["id"], "code") if spec is not None else None
         generation = adopted["generation"] if adopted is not None else "none"
-        print(f"{name:<{width}}  pinned={pinned}  adopted={generation}")
+        sync = disk_sync_status(root, name)
+        print(f"{name:<{width}}  pinned={pinned}  adopted={generation}  sync={sync}")
 
 
 def adopt_spec(name, modules=None, required=None, allow_longer=False):
@@ -364,8 +403,9 @@ def refactor_command(name):
         print(f"Enter '/generate {name}' to write the clearer code to disk.")
 
 
-def revert_spec(name, generation):
-    log.info("revert %s generation %s", name, generation)
+def revert_spec(name, generation, root=None, write_disk=True):
+    log.info("revert %s generation %s write_disk=%s", name, generation, write_disk)
+    root = Path(root).resolve() if root is not None else startup_dir()
     spec = get_spec(name)
     if spec is None:
         log.info("revert refused: spec not found")
@@ -382,7 +422,14 @@ def revert_spec(name, generation):
     mark_adopted(spec["id"], generation)
     log.info("reverted %s to generation %s", name, generation)
     print(f"Reverted '{name}' to generation {generation}.")
-    print(f"Enter '/generate {name}' to write that generation to disk.")
+    if not write_disk:
+        print(f"Database only. Enter '/generate {name}' to write that generation to disk.")
+        return
+    if write_adopted(root, name):
+        print(f"Wrote generation {generation} to disk.")
+        return
+    log.info("revert left disk unchanged for %s", name)
+    print("Database reverted. Disk was not updated.")
 
 
 def write_adopted(root, name):

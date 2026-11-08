@@ -41,13 +41,14 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/add <n>` | Runs `/add` with suggestion number `n` when `.module` files exist. |
 | `/build` | Builds each `.module` file and writes the adopted code. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
-| `/specs` | Lists each specification with the pin flag and the adopted generation. |
+| `/specs` | Lists each specification with the pin flag, adopted generation, and disk sync. |
 | `/refactor <name>` | Rewrites adopted code for clarity. Tests and the check stay fixed. |
-| `/show <name>` | Prints the specification, the adopted generation, and a newer candidate. |
+| `/show <name>` | Prints the specification, disk sync, the adopted generation, and a newer candidate. |
 | `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. |
 | `/pin <name>` | Pins the specification and the latest code. |
 | `/unpin <name>` | Clears that pin. |
-| `/revert <name> <generation>` | Adopts an earlier generation. |
+| `/revert <name> <generation>` | Adopts an earlier generation and writes it to disk. |
+| `/revert <name> <generation> --db-only` | Adopts an earlier generation without writing disk. |
 | `/generate` | Writes every adopted specification and its tests. |
 | `/generate <name>` | Writes that adopted specification and its tests. |
 | `/test` | Runs on-disk pytest with `PYTHONPATH` set to the startup directory. |
@@ -73,9 +74,9 @@ When a module names another module in `uses:`, Jev reads the tests. Jev asks whe
 
 Mechanicus does not adopt the new generation yet. Mechanicus does not replace a pinned specification. It does not call the model for that name.
 
-`/specs` prints each specification name, whether it is pinned, and the adopted generation number. When no specification is adopted yet, it prints `none`.
+`/specs` prints each specification name, whether it is pinned, the adopted generation number, and disk sync (`ok`, `differ`, `missing`, or `none`). When no specification is adopted yet, the generation is `none` and sync is `none`.
 
-`/show` prints the behavior and the pin flag. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate.
+`/show` prints the behavior, the pin flag, and disk sync. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate.
 
 A generation number starts at 1. `/show` prints the number. Use that number with `/revert`.
 
@@ -174,7 +175,7 @@ If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. I
 1. If the specification is pinned, enter `/unpin` and the name.
 2. Enter `/revert`, the name, and the generation number.
 
-`/revert` does not call the model. `/revert` does not run pytest. Mechanicus refuses `/revert` while the specification is pinned. After `/revert`, enter `/generate` and the name so the disk file matches the database.
+`/revert` does not call the model. `/revert` does not run pytest. Mechanicus refuses `/revert` while the specification is pinned. By default `/revert` writes the adopted generation to disk the same way `/generate` does. If that write fails, the database still holds the reverted generation and Mechanicus reports that disk was not updated. Enter `/revert`, the name, the generation, and `--db-only` when you want to change adoption without writing disk.
 
 ## Write files
 
@@ -214,7 +215,7 @@ The example file is `src/mechanicus/config.yaml.example`. The default model is `
 
 To run Mechanicus on this repository, read [SELF-MODIFY-GUIDE.md](SELF-MODIFY-GUIDE.md).
 
-Set `package_root` to `src/mechanicus`. Start from the repository root. Enter `/import` for each leaf you will change. Change one leaf at a time. After `/revert`, enter `/generate`. Run `python -m mechanicus.smoke` after a generate step.
+Set `package_root` to `src/mechanicus`. Start from the repository root. Enter `/import` for each leaf you will change. Change one leaf at a time. `/revert` writes disk by default. Run `python -m mechanicus.smoke` after a generate or revert that writes disk.
 
 ## Secrets
 

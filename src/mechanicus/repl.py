@@ -51,13 +51,13 @@ def repl():
         print("  /add <feature|n>            - add a feature, or apply suggestion n")
         print("  /build                      - build each .module file and write the adopted code")
         print("  /import <name>              - import package source as adopted and pinned")
-        print("  /specs                      - list specifications with pin and adopted generation")
+        print("  /specs                      - list specifications with pin, adopted generation, and disk sync")
         print("  /refactor <name>            - rewrite adopted code for clarity; tests stay fixed")
         print("  /pin <name>                 - pin a spec so it cannot be regenerated or overwritten")
         print("  /unpin <name>               - clear that pin")
         print("  /adopt <name>               - run tests, repair the code, and adopt when they pass")
-        print("  /revert <name> <generation> - adopt an earlier generation without generating")
-        print("  /show <name>                - show the spec, the adopted rendering, and any newer candidate")
+        print("  /revert <name> <generation> [--db-only] - adopt an earlier generation and write disk")
+        print("  /show <name>                - show the spec, sync status, adopted rendering, and candidate")
         print("  /generate [name]            - write adopted code and tests into the startup directory")
         print("  /test [name]                - run on-disk pytest with PYTHONPATH=startup")
         print("  /run <name>                 - run the adopted code for a spec")
@@ -160,7 +160,7 @@ def repl():
             elif cmd == "/import" and len(parts) == 2:
                 import_source(root, parts[1])
             elif cmd == "/specs" and len(parts) == 1:
-                list_specs()
+                list_specs(root)
             elif cmd == "/refactor" and len(parts) == 2:
                 refactor_command(parts[1])
             elif cmd == "/pin" and len(parts) == 2:
@@ -179,16 +179,23 @@ def repl():
                     print("Spec not found.")
             elif cmd == "/adopt" and len(parts) == 2:
                 adopt_spec(parts[1])
-            elif cmd == "/revert" and len(parts) == 3:
+            elif cmd == "/revert" and len(parts) in (3, 4):
                 try:
                     generation = int(parts[2])
                 except ValueError:
                     log.info("revert refused: generation is not an integer")
                     print("Generation must be an integer.")
                     continue
-                revert_spec(parts[1], generation)
+                write_disk = True
+                if len(parts) == 4:
+                    if parts[3] != "--db-only":
+                        log.info("revert refused: unknown option %s", parts[3])
+                        print("Unknown option. Use --db-only to skip writing disk.")
+                        continue
+                    write_disk = False
+                revert_spec(parts[1], generation, root, write_disk)
             elif cmd == "/show" and len(parts) == 2:
-                show_spec(parts[1])
+                show_spec(parts[1], root)
             elif cmd == "/generate" and len(parts) == 1:
                 generate_command(root)
             elif cmd == "/generate" and len(parts) == 2:

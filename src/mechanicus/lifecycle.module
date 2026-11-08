@@ -1,4 +1,5 @@
 Run the specification, adopt, revert, generate, and run commands.
 Save generations in SQLite through mechanicus.store.
 Write adopted code with mechanicus.paths under the configured code root.
+On revert, write disk by default and report sync against adopted artifacts.
 Load pinned adopted modules once per process for /run.

@@ -40,6 +40,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/add <n>` | Runs `/add` with suggestion number `n` when `.module` files exist. |
 | `/build` | Builds each `.module` file and writes the adopted code. Prints module status before and after. |
+| `/build <name>` | Builds one `.module` file. Dependencies must already be adopted. Refuses modules still in a cycle. |
 | `/modules` | Lists each `.module` file with build status, disk sync, uses, and a short reason. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
 | `/specs` | Lists each specification with the pin flag, adopted generation, and disk sync. |
@@ -149,12 +150,14 @@ Jev reads the modules after that change. A score below 0.7 sends the change back
 
 ## Build
 
-1. Enter `/build`.
+1. Enter `/build`, or enter `/build` and a module name.
 2. Read the module status table before the build.
-3. Read the result for each module.
+3. Read the result for each module that runs.
 4. Read the module status table after the build.
 
-`/build` reads every `.module` file in the startup directory. It does not read files under `.mechanicus`. It prints module status before it builds. After cycle repair it prints the table again when the graph changed. It builds a module after each module that file uses. For a new behavior, Mechanicus writes the tests, writes the code, runs pytest, and writes the adopted module. It skips a module whose path would shadow a package directory or nest under an existing top-level `.py` module file. When the build finishes, it prints module status again with outcomes such as `built`, `failed`, `unchanged`, or `pinned`.
+`/build` with no name reads every `.module` file in the startup directory. It does not read files under `.mechanicus`. It prints module status before it builds. After cycle repair it prints the table again when the graph changed. It builds a module after each module that file uses. For a new behavior, Mechanicus writes the tests, writes the code, runs pytest, and writes the adopted module. It skips a module whose path would shadow a package directory or nest under an existing top-level `.py` module file. When the build finishes, it prints module status again with outcomes such as `built`, `failed`, `unchanged`, or `pinned`.
+
+`/build <name>` builds only that module. It does not repair cycles for the whole graph. If the module is in a cycle, Mechanicus refuses and asks for a full `/build` first. If a `uses:` dependency is not adopted, Mechanicus refuses that partial build. Use `/modules` to see which names are `ready` or `blocked` before you choose a name.
 
 When modules use each other, Mechanicus adds one module for the shared job. The modules in the cycle do not use each other. Those modules can use the new module. Mechanicus writes the new file, then continues the build. When Mechanicus cannot use that new module, it removes `uses:` lines until the modules do not use each other. Mechanicus does not change a pinned module in that cycle.
 

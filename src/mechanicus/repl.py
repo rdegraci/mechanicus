@@ -56,6 +56,7 @@ def repl():
         print("  /plan [description]         - write a .module file for each recommended module")
         print("  /add <feature|n>            - add a feature, or apply suggestion n")
         print("  /build                      - build each .module file and write the adopted code")
+        print("  /build <name>               - build one .module (deps must already be adopted)")
         print("  /modules                    - list .module files with build status and disk sync")
         print("  /import <name>              - import package source as adopted and pinned")
         print("  /specs                      - list specifications with pin, adopted generation, and disk sync")
@@ -164,6 +165,8 @@ def repl():
                         add_command(root, feature)
             elif cmd == "/build" and len(parts) == 1:
                 build_command(root)
+            elif cmd == "/build" and len(parts) == 2:
+                build_command(root, parts[1])
             elif cmd == "/modules" and len(parts) == 1:
                 modules_command(root)
             elif cmd == "/import" and len(parts) == 2:

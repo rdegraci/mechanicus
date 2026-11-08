@@ -856,7 +856,51 @@ def build_one(root, record):
     return "failed", "adopted; disk was not updated"
 
 
-def build_command(root):
+def _record_for_name(records, name):
+    target = spec_name_for_module(name)
+    if target is None:
+        return None
+    for record in records:
+        if record["name"] == target:
+            return record
+    return None
+
+
+def _build_one_module(root, name):
+    """Build a single .module without cycle repair or a full-graph walk."""
+    log.info("build one %s", name)
+    root = Path(root).resolve()
+    records = module_records(root)
+    if not records:
+        log.info("build refused: no module files")
+        print("No module files.")
+        return
+    record = _record_for_name(records, name)
+    if record is None:
+        shown = spec_name_for_module(name) or str(name).strip()
+        log.info("build refused: no module %s", shown)
+        print(f"No module file for '{shown}'.")
+        return
+    spec_name = record["name"]
+    before = [row for row in module_statuses(root) if row["name"] == spec_name]
+    print_module_statuses(before, heading=f"--- module {spec_name} before build ---")
+    if before and before[0]["status"] == "cyclic":
+        log.info("build refused: %s is cyclic", spec_name)
+        print(f"'{spec_name}' is in a cycle. Enter /build to repair cycles, then build again.")
+        return
+    status, reason = build_one(root, record)
+    log.info("build %s -> %s (%s)", spec_name, status, reason)
+    after = module_statuses(root, outcomes={spec_name: (status, reason)})
+    print_module_statuses(
+        [row for row in after if row["name"] == spec_name],
+        heading=f"--- module {spec_name} after build ---",
+    )
+
+
+def build_command(root, name=None):
+    if name is not None:
+        _build_one_module(root, name)
+        return
     log.info("build")
     root = Path(root).resolve()
     records = module_records(root)

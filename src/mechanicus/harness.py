@@ -323,8 +323,17 @@ def tests_for_disk(tests, name):
     module = module_import(name)
     if module is not None:
         # Keep the name impl in the test body so a local variable can match the module name.
-        text = re.sub(r"(?m)^import impl\b.*$", f"import {module} as impl", text)
-        text = re.sub(r"(?m)^from impl\b", f"from {module}", text)
+        # Rewrite indented imports too (helpers often re-import impl after monkeypatching).
+        text = re.sub(
+            r"(?m)^([ \t]*)import impl\b.*$",
+            rf"\1import {module} as impl",
+            text,
+        )
+        text = re.sub(
+            r"(?m)^([ \t]*)from impl\b",
+            rf"\1from {module}",
+            text,
+        )
         if re.search(r"\bimpl\b", text) and "as impl" not in text:
             text = f"import {module} as impl\n{text}"
     if text and not text.endswith("\n"):

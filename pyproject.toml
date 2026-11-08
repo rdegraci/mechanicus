@@ -22,3 +22,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 mechanicus = ["config.yaml.example", "dot_env.example"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

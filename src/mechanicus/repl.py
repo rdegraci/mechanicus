@@ -32,11 +32,83 @@ from mechanicus.store import init_db, pin_spec, unpin_spec
 from mechanicus.suggestions import get_suggestion, suggestions_command
 
 
+_COMMAND_HELP = (
+    (
+        "Draft",
+        (
+            ("/greenfield [note]", "Draft an application description for a new app."),
+            ("/brownfield [note|n]", "Draft from the codebase, or open suggestion n."),
+            ("/suggestions", "Analyze the tree and list numbered improvements."),
+            ("/accept", "Save the draft, leave drafting, and run /plan."),
+            ("/abort", "Leave drafting without planning."),
+        ),
+    ),
+    (
+        "Plan and build",
+        (
+            ("/plan [description]", "Write a .module file for each recommended module."),
+            ("/add <feature|n>", "Add a feature to modules, or apply suggestion n."),
+            ("/modules", "List .module files with build status and disk sync."),
+            ("/build", "Build each .module file and write the adopted code."),
+            ("/build <name>", "Build one .module (dependencies must already be adopted)."),
+        ),
+    ),
+    (
+        "Spec lifecycle",
+        (
+            ("/spec <name> <behavior>", "Store a spec, write failing tests, then generate code."),
+            ("/adopt <name>", "Run tests, repair the code, and adopt when they pass."),
+            ("/show <name>", "Show the spec, sync, last adopt, rendering, and candidate."),
+            ("/specs", "List specs with pin, adopted generation, sync, and last adopt."),
+            ("/pin <name>", "Pin a spec so it cannot be regenerated or overwritten."),
+            ("/unpin <name>", "Clear that pin."),
+            ("/revert <name> <generation> [--db-only]", "Adopt an earlier generation; write disk unless --db-only."),
+            ("/refactor <name>", "Rewrite adopted code for clarity; tests stay fixed."),
+        ),
+    ),
+    (
+        "Disk and run",
+        (
+            ("/import <name>", "Import package source as adopted and pinned."),
+            ("/generate [name]", "Write adopted code and tests into the startup directory."),
+            ("/test [name]", "Run on-disk pytest with PYTHONPATH set to startup."),
+            ("/run <name>", "Run the adopted code for a spec."),
+        ),
+    ),
+    (
+        "Session",
+        (
+            ("/logfile", "Print the path to the session log file."),
+            ("/help", "List commands and a short description of each."),
+            ("/quit", "Exit the REPL."),
+            ("/exit", "Exit the REPL."),
+        ),
+    ),
+)
+
+
 def _suggestion_index(text):
     raw = str(text).strip()
     if raw.isdigit():
         return int(raw)
     return None
+
+
+def _help_entries():
+    for _group, entries in _COMMAND_HELP:
+        for command, blurb in entries:
+            yield command, blurb
+
+
+def print_help():
+    print("Commands:")
+    width = max(len(command) for command, _blurb in _help_entries())
+    for index, (group, entries) in enumerate(_COMMAND_HELP):
+        if index:
+            print()
+        print(group)
+        for command, blurb in entries:
+            print(f"  {command:<{width}}  {blurb}")
 
 
 def repl():
@@ -46,32 +118,8 @@ def repl():
     log_path = start_session_log()
     draft = None
     try:
-        print("Seed REPL. Commands:")
-        print("  /greenfield [note]          - draft an application description for a new app")
-        print("  /brownfield [note|n]        - draft from the codebase, or open suggestion n")
-        print("  /suggestions                - analyze the tree and list numbered improvements")
-        print("  /accept                     - save the draft, exit drafting, and run /plan")
-        print("  /abort                      - leave drafting without planning")
-        print("  /spec <name> <behavior>     - store a spec, write failing tests, then generate code")
-        print("  /plan [description]         - write a .module file for each recommended module")
-        print("  /add <feature|n>            - add a feature, or apply suggestion n")
-        print("  /build                      - build each .module file and write the adopted code")
-        print("  /build <name>               - build one .module (deps must already be adopted)")
-        print("  /modules                    - list .module files with build status and disk sync")
-        print("  /import <name>              - import package source as adopted and pinned")
-        print("  /specs                      - list specs with pin, adopted generation, sync, and last adopt")
-        print("  /refactor <name>            - rewrite adopted code for clarity; tests stay fixed")
-        print("  /pin <name>                 - pin a spec so it cannot be regenerated or overwritten")
-        print("  /unpin <name>               - clear that pin")
-        print("  /adopt <name>               - run tests, repair the code, and adopt when they pass")
-        print("  /revert <name> <generation> [--db-only] - adopt an earlier generation and write disk")
-        print("  /show <name>                - show the spec, sync, last adopt, rendering, and candidate")
-        print("  /generate [name]            - write adopted code and tests into the startup directory")
-        print("  /test [name]                - run on-disk pytest with PYTHONPATH=startup")
-        print("  /run <name>                 - run the adopted code for a spec")
-        print("  /logfile                    - print the path to the session log file")
-        print("  /quit                       - exit the REPL")
-        print("  /exit                       - exit the REPL")
+        print("Seed REPL.")
+        print_help()
         print_startup_hints(root)
         while True:
             try:
@@ -95,9 +143,13 @@ def repl():
                     if accept_draft(root, draft):
                         draft = None
                     continue
+                if line == "/help":
+                    log.info("help")
+                    print_help()
+                    continue
                 if line.startswith("/"):
                     log.info("draft refused other command")
-                    print("Enter /accept to plan, /abort to leave, or /quit to stop.")
+                    print("Enter /accept to plan, /abort to leave, /help for commands, or /quit to stop.")
                     continue
                 print("Thinking...")
                 try:
@@ -220,9 +272,11 @@ def repl():
                 run_adopted(parts[1])
             elif cmd == "/logfile" and len(parts) == 1:
                 print(f"Log file: {log_path}")
+            elif cmd == "/help" and len(parts) == 1:
+                print_help()
             else:
                 log.info("unknown command %s", cmd)
-                print("Unknown command.")
+                print("Unknown command. Enter /help for the command list.")
     finally:
         close_session_log()
         print(f"Log file: {log_path}")

@@ -57,6 +57,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/test <name>` | Runs the on-disk tests for that specification. |
 | `/run <name>` | Loads the adopted code and calls `main` when it exists. |
 | `/logfile` | Prints the path of the session log file. |
+| `/help` | Lists commands and a short description of each. |
 | `/quit` | Stops Mechanicus. |
 | `/exit` | Stops Mechanicus. |
 

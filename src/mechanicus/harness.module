@@ -1,4 +1,5 @@
 Run pytest in a temporary directory against impl.py with unit tests and a check.
 Classify empty-impl results as red, pass, or broken.
+Reject weak tests: no impl use, trivial asserts, or failures not tied to impl.
 Detect adopted modules that code imports but never calls.
 Rewrite disk tests so they import the real module name as impl.

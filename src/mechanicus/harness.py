@@ -72,35 +72,173 @@ def _failure_text(output: str) -> str:
     return output[-limit:]
 
 
-def classify_before_code(passed: bool, output: str) -> str:
+_TRIVIAL_CONSTANTS = {True, False, 0, 1}
+
+
+def _impl_bound_names(tree):
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "impl" or alias.name.startswith("impl."):
+                    names.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom) and node.module == "impl":
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _refers_to_impl(node, impl_names):
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and child.id in impl_names:
+            return True
+        if isinstance(child, ast.Attribute):
+            current = child
+            while isinstance(current, ast.Attribute):
+                current = current.value
+            if isinstance(current, ast.Name) and current.id in impl_names:
+                return True
+    return False
+
+
+def _is_trivial_assert(node):
+    if not isinstance(node, ast.Assert):
+        return False
+    test = node.test
+    if isinstance(test, ast.Constant) and test.value in _TRIVIAL_CONSTANTS:
+        return True
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        operand = test.operand
+        if isinstance(operand, ast.Constant) and operand.value in _TRIVIAL_CONSTANTS:
+            return True
+    return False
+
+
+def _is_trivial_fail_call(node):
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return False
+    func = node.value.func
+    if isinstance(func, ast.Attribute) and func.attr == "fail":
+        return True
+    if isinstance(func, ast.Name) and func.id == "fail":
+        return True
+    return False
+
+
+def _sniff_one_source(text):
+    source = str(text or "")
+    if not source.strip():
+        return "empty"
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return "syntax"
+    impl_names = _impl_bound_names(tree)
+    if not impl_names:
+        return "no_impl"
+    uses_impl = False
+    trivial = False
+    for node in ast.walk(tree):
+        if _is_trivial_assert(node) or _is_trivial_fail_call(node):
+            trivial = True
+        if isinstance(node, ast.Assert) and _refers_to_impl(node, impl_names):
+            uses_impl = True
+        if isinstance(node, ast.Call) and _refers_to_impl(node, impl_names):
+            uses_impl = True
+    # Allow assert False / pytest.fail alongside real impl checks (e.g. should-raise).
+    # Reject only when the file has no impl-tied assert/call.
+    if not uses_impl:
+        if trivial:
+            return "trivial_assert"
+        return "no_impl"
+    return None
+
+
+def sniff_test_sources(tests, check):
+    """Return a broken reason if tests/check are too weak, else None."""
+    for text in (tests, check):
+        reason = _sniff_one_source(text)
+        if reason is not None:
+            return reason
+    return None
+
+
+def _trivial_failure_output(output: str) -> bool:
+    patterns = (
+        r"(?m)^E\s+assert False\s*$",
+        r"(?m)^E\s+assert True\s*$",
+        r"(?m)^E\s+assert 0\s*$",
+        r"(?m)^E\s+assert 1\s*$",
+        r"(?m)^E\s+AssertionError: False\s*$",
+        r"(?m)^E\s+AssertionError: True\s*$",
+        r"(?m)^E\s+AssertionError: 0\s*$",
+        r"(?m)^E\s+AssertionError: 1\s*$",
+        r"(?m)^E\s+Failed:\s*$",
+        r"Failed:\s*Failed without message",
+    )
+    return any(re.search(pattern, output) for pattern in patterns)
+
+
+def _impl_tied_failure(output: str, import_errors) -> bool:
+    if import_errors:
+        return True
+    if re.search(r"AttributeError:.*\bimpl\b", output):
+        return True
+    if re.search(r"ImportError:.*\bimpl\b", output):
+        return True
+    if "AssertionError" in output or re.search(r"(?m)^E\s+assert\b", output):
+        return bool(re.search(r"\bimpl\b", output))
+    if re.search(r"(?m)^E\s+Failed:", output) and re.search(r"\bimpl\b", output):
+        return True
+    return False
+
+
+def classify_before_code_with_reason(passed: bool, output: str, tests=None, check=None):
     """Classify pytest against an empty impl.py.
 
-    red: every failure is a missing behavior (assertion or missing impl name).
+    Returns (kind, reason) where kind is red, pass, or broken.
+    red: failures show missing behavior on impl (not a trivial assert).
     pass: pytest passed, so the tests do not require the behavior.
-    broken: the tests did not run, or a test passed.
+    broken: weak tests, collection/syntax problems, or mixed results.
     """
+    if tests is not None or check is not None:
+        sniff = sniff_test_sources(tests or "", check or "")
+        if sniff is not None:
+            return "broken", sniff
     if passed:
-        return "pass"
+        return "pass", "passed"
     if re.search(r"(?m)^\d.*\bpassed\b", output):
-        return "broken"
+        return "broken", "mixed_pass"
     if re.search(r"collected 0 items|no tests ran", output, re.I):
-        return "broken"
+        return "broken", "no_tests"
     if re.search(r"SyntaxError:|IndentationError:|NameError:|ModuleNotFoundError:", output):
-        return "broken"
+        return "broken", "collect_error"
     import_errors = re.findall(r"ImportError:.*", output)
     for message in import_errors:
         if not re.search(r"cannot import name '.+' from 'impl'", message):
-            return "broken"
-    red = (
-        "AssertionError" in output
-        or "AttributeError" in output
-        or bool(import_errors)
-        or re.search(r"(?m)^E\s+assert\b", output) is not None
-        or re.search(r"(?m)^E\s+Failed:", output) is not None
-    )
-    if red:
-        return "red"
-    return "broken"
+            return "broken", "import_error"
+    impl_tied = _impl_tied_failure(output, import_errors)
+    if _trivial_failure_output(output) and not impl_tied:
+        return "broken", "trivial_assert"
+    if not impl_tied:
+        has_failure = (
+            "AssertionError" in output
+            or "AttributeError" in output
+            or bool(import_errors)
+            or re.search(r"(?m)^E\s+assert\b", output) is not None
+            or re.search(r"(?m)^E\s+Failed:", output) is not None
+        )
+        if has_failure:
+            return "broken", "no_impl"
+        return "broken", "broken"
+    return "red", "red"
+
+
+def classify_before_code(passed: bool, output: str, tests=None, check=None) -> str:
+    kind, _reason = classify_before_code_with_reason(passed, output, tests, check)
+    return kind
 
 
 def prepare_tests(tests: str) -> str:

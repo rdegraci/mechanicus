@@ -17,8 +17,9 @@ from mechanicus.codegen import (
 from mechanicus.config import configured_repair_attempts, log, startup_dir
 from mechanicus.harness import (
     _failure_text,
-    classify_before_code,
+    classify_before_code_with_reason,
     run_tests,
+    sniff_test_sources,
     tests_for_disk,
     uncalled_modules,
 )
@@ -33,6 +34,7 @@ from mechanicus.store import (
     list_spec_names,
     longer_than_adopted,
     mark_adopted,
+    record_adopt_result,
     save_generation,
 )
 
@@ -152,6 +154,18 @@ def show_spec(name, root=None):
         return
     sync = disk_sync_status(root, name)
     print(f"Spec: {spec['behavior']} (pinned={bool(spec['pinned'])} sync={sync})")
+    adopt_status = spec["adopt_status"] or "none"
+    if adopt_status != "none":
+        adopt_line = f"Adopt: {adopt_status}"
+        if spec["adopt_reason"]:
+            adopt_line += f" reason={spec['adopt_reason']}"
+        if spec["adopt_generation"] is not None:
+            adopt_line += f" generation={spec['adopt_generation']}"
+        print(adopt_line)
+        if spec["adopt_detail"]:
+            print(f"detail: {spec['adopt_detail']}")
+    else:
+        print("Adopt: none")
     adopted = get_adopted_artifact(spec["id"], "code")
     latest = get_latest_artifact(spec["id"], "code")
     if adopted is None:
@@ -191,7 +205,24 @@ def list_specs(root=None):
         adopted = get_adopted_artifact(spec["id"], "code") if spec is not None else None
         generation = adopted["generation"] if adopted is not None else "none"
         sync = disk_sync_status(root, name)
-        print(f"{name:<{width}}  pinned={pinned}  adopted={generation}  sync={sync}")
+        adopt = (spec["adopt_status"] or "none") if spec is not None else "none"
+        print(
+            f"{name:<{width}}  pinned={pinned}  adopted={generation}  "
+            f"sync={sync}  adopt={adopt}"
+        )
+
+
+def _note_adopt(name, status, reason, detail="", generation=None):
+    recorded = record_adopt_result(name, status, reason, detail, generation)
+    if recorded:
+        log.info(
+            "adopt result %s status=%s reason=%s generation=%s",
+            name,
+            status,
+            reason,
+            generation,
+        )
+    return recorded
 
 
 def adopt_spec(name, modules=None, required=None, allow_longer=False):
@@ -204,6 +235,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             names = ", ".join(missing)
             log.info("adopt refused: %s uses %s", name, names)
             print(f"'{name}' uses {names}, which is not adopted.")
+            _note_adopt(name, "failed", "missing_deps", f"uses {names}, which is not adopted")
             return
     if required is None:
         required = []
@@ -216,25 +248,40 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
     if code is None:
         log.info("adopt refused: no artifacts")
         print("No generated artifacts.")
+        _note_adopt(name, "failed", "no_artifacts", "No generated artifacts.")
         return
     # Pin blocks replacing an adopted version. The first adopt of pinned code still runs.
     if code["pinned"] and code["adopted"]:
         log.info("adopt refused: generation %s is pinned and adopted", code["generation"])
         print("Code is pinned; cannot adopt over it.")
+        _note_adopt(
+            name,
+            "failed",
+            "pinned",
+            "Code is pinned; cannot adopt over it.",
+            code["generation"],
+        )
         return
     tests = get_generation_artifact(spec["id"], code["generation"], "tests")
     check = get_generation_artifact(spec["id"], code["generation"], "check")
     if tests is None or not tests["content"].strip():
         log.info("adopt refused: no tests")
         print("No generated tests.")
+        _note_adopt(name, "failed", "no_tests", "No generated tests.", code["generation"])
         return
     if check is None or not check["content"].strip():
         log.info("adopt refused: no check")
         print("No behavioral check.")
+        _note_adopt(name, "failed", "no_check", "No behavioral check.", code["generation"])
         return
     if not allow_longer:
         adopted = longer_than_adopted(spec["id"], code)
         if adopted is not None:
+            detail = (
+                f"Generation {code['generation']} is {code['lines']} lines; "
+                f"adopted generation {adopted['generation']} is {adopted['lines']} lines "
+                f"for the same behavior."
+            )
             log.info(
                 "adopt refused: generation %s has %s lines; adopted generation %s has %s lines",
                 code["generation"],
@@ -242,11 +289,8 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                 adopted["generation"],
                 adopted["lines"],
             )
-            print(
-                f"Refused. Generation {code['generation']} is {code['lines']} lines; "
-                f"adopted generation {adopted['generation']} is {adopted['lines']} lines "
-                f"for the same behavior."
-            )
+            print(f"Refused. {detail}")
+            _note_adopt(name, "failed", "longer", detail, code["generation"])
             return
     behavior = spec["behavior"]
     repairs_left = 0 if spec["pinned"] else configured_repair_attempts()
@@ -272,6 +316,11 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             if not allow_longer:
                 blocked = longer_than_adopted(spec["id"], code)
                 if blocked is not None:
+                    detail = (
+                        f"Generation {code['generation']} is {code['lines']} lines; "
+                        f"adopted generation {blocked['generation']} is {blocked['lines']} lines "
+                        f"for the same behavior."
+                    )
                     log.info(
                         "adopt refused: generation %s has %s lines; adopted generation %s has %s lines",
                         code["generation"],
@@ -279,15 +328,13 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                         blocked["generation"],
                         blocked["lines"],
                     )
-                    print(
-                        f"Refused. Generation {code['generation']} is {code['lines']} lines; "
-                        f"adopted generation {blocked['generation']} is {blocked['lines']} lines "
-                        f"for the same behavior."
-                    )
+                    print(f"Refused. {detail}")
+                    _note_adopt(name, "failed", "longer", detail, code["generation"])
                     return
             mark_adopted(spec["id"], code["generation"])
             log.info("adopted generation %s", code["generation"])
             print("Tests passed. Adopted.")
+            _note_adopt(name, "ok", "ok", "Tests passed. Adopted.", code["generation"])
             return
         if not pytest_passed:
             log.info("tests failed for generation %s", code["generation"])
@@ -295,7 +342,24 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
         if repairs_left <= 0:
             if spec["pinned"]:
                 log.info("repair skipped: %s is pinned", name)
-            print("Tests failed. Not adopted." if not pytest_passed else "Modules were not called. Not adopted.")
+            if pytest_passed:
+                print("Modules were not called. Not adopted.")
+                _note_adopt(
+                    name,
+                    "failed",
+                    "uncalled",
+                    "Modules were not called. Not adopted.",
+                    code["generation"],
+                )
+            else:
+                print("Tests failed. Not adopted.")
+                _note_adopt(
+                    name,
+                    "failed",
+                    "harness",
+                    "Tests failed. Not adopted.",
+                    code["generation"],
+                )
             return
         repair_number += 1
         repairs_left -= 1
@@ -319,6 +383,13 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             log.exception("repair failed for %s", name)
             print(f"Error: {error}")
             print("Tests failed. Not adopted.")
+            _note_adopt(
+                name,
+                "failed",
+                "error",
+                f"Repair failed: {error}",
+                code["generation"],
+            )
             return
         code = get_generation_artifact(spec_id, generation, "code")
         tests = get_generation_artifact(spec_id, generation, "tests")
@@ -422,6 +493,7 @@ def revert_spec(name, generation, root=None, write_disk=True):
     mark_adopted(spec["id"], generation)
     log.info("reverted %s to generation %s", name, generation)
     print(f"Reverted '{name}' to generation {generation}.")
+    _note_adopt(name, "ok", "ok", f"Reverted to generation {generation}.", generation)
     if not write_disk:
         print(f"Database only. Enter '/generate {name}' to write that generation to disk.")
         return
@@ -559,17 +631,30 @@ def tests_until_red(behavior, modules=None, required=None):
         tests = result.tests
         check = result.check
         _print_tests(tests, check, result.explanation)
+        reason = ""
         if not str(tests).strip() or not str(check).strip():
             passed = False
             output = "The tests or the check are empty."
             kind = "broken"
+            reason = "empty"
             log.info("tests are empty before the implementation")
         else:
-            print("Running tests...")
-            passed, output = run_tests("", tests, check, modules)
-            kind = classify_before_code(passed, output)
-            log.info("tests before the implementation: %s", kind)
-            log.info("pytest output:\n%s", _failure_text(output))
+            sniff = sniff_test_sources(tests, check)
+            if sniff is not None:
+                passed = False
+                output = f"Tests are too weak to prove the behavior is missing ({sniff})."
+                kind = "broken"
+                reason = sniff
+                log.info("tests sniffed before the implementation: %s", sniff)
+                print(f"Tests are not red ({sniff}).")
+            else:
+                print("Running tests...")
+                passed, output = run_tests("", tests, check, modules)
+                kind, reason = classify_before_code_with_reason(passed, output, tests, check)
+                log.info("tests before the implementation: %s (%s)", kind, reason)
+                log.info("pytest output:\n%s", _failure_text(output))
+                if kind != "red":
+                    print(f"Tests are not red ({reason}).")
         if kind == "red" and required and not jev_checked:
             jev_checked = True
             try:
@@ -608,7 +693,9 @@ def tests_until_red(behavior, modules=None, required=None):
         repair_number += 1
         repairs_left -= 1
         print(f"Repairing tests ({repair_number} of {repair_limit})...")
-        log.info("repair tests %s of %s", repair_number, repair_limit)
+        log.info("repair tests %s of %s reason=%s", repair_number, repair_limit, reason or kind)
+        if reason and reason not in str(output):
+            output = f"{reason}\n{output}"
         result = repair_tests(behavior, tests, check, output, kind)
 
 

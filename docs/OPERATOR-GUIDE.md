@@ -43,10 +43,10 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/build <name>` | Builds one `.module` file. Dependencies must already be adopted. Refuses modules still in a cycle. |
 | `/modules` | Lists each `.module` file with build status, disk sync, uses, and a short reason. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
-| `/specs` | Lists each specification with the pin flag, adopted generation, and disk sync. |
+| `/specs` | Lists each specification with pin, adopted generation, disk sync, and last adopt result. |
 | `/refactor <name>` | Rewrites adopted code for clarity. Tests and the check stay fixed. |
-| `/show <name>` | Prints the specification, disk sync, the adopted generation, and a newer candidate. |
-| `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. |
+| `/show <name>` | Prints the specification, disk sync, last adopt result, adopted generation, and a newer candidate. |
+| `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. Records the last adopt result. |
 | `/pin <name>` | Pins the specification and the latest code. |
 | `/unpin <name>` | Clears that pin. |
 | `/revert <name> <generation>` | Adopts an earlier generation and writes it to disk. |
@@ -70,15 +70,15 @@ Mechanicus starts in command mode. When `.mechanicus/application.txt` or a `.mod
 2. Read the tests and the check.
 3. Read the code.
 
-Mechanicus runs the tests against an empty module. The tests must fail. Mechanicus repairs the tests when they pass or when they do not run. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. Mechanicus does not save a generation when the tests do not fail.
+Mechanicus runs the tests against an empty module. The tests must fail in a way that proves the behavior is missing. Mechanicus rejects weak tests: missing `impl` use, trivial asserts such as `assert False`, mixed pass/fail runs, and failures that do not involve `impl`. Mechanicus repairs the tests when they pass or when they are broken. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. Mechanicus does not save a generation when the tests do not go red.
 
 When a module names another module in `uses:`, Jev reads the tests. Jev asks whether the tests fail when the code never calls that module. A score below 0.7 sends the tests to the writing model once. Mechanicus keeps those tests.
 
 Mechanicus does not adopt the new generation yet. Mechanicus does not replace a pinned specification. It does not call the model for that name.
 
-`/specs` prints each specification name, whether it is pinned, the adopted generation number, and disk sync (`ok`, `differ`, `missing`, or `none`). When no specification is adopted yet, the generation is `none` and sync is `none`.
+`/specs` prints each specification name, whether it is pinned, the adopted generation number, disk sync (`ok`, `differ`, `missing`, or `none`), and the last adopt result (`ok`, `failed`, or `none`). When no specification is adopted yet, the generation is `none` and sync is `none`.
 
-`/show` prints the behavior, the pin flag, and disk sync. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate.
+`/show` prints the behavior, the pin flag, and disk sync. It prints the last adopt result (`Adopt: ok|failed|none`) with a reason code and optional detail. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate. A new saved generation clears the last adopt result until `/adopt` runs again.
 
 A generation number starts at 1. `/show` prints the number. Use that number with `/revert`.
 
@@ -177,6 +177,8 @@ Mechanicus adopts the generation only when the tests and the check both pass. It
 When the tests fail, Mechanicus sends the pytest output to the writing model. The writing model repairs the code. The tests and the check do not change. Mechanicus saves that generation and runs pytest again. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. A pinned specification is not repaired. A failed run does not clear an older adopted generation.
 
 If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. If that code is pinned and not adopted, Mechanicus still runs the tests.
+
+Each `/adopt` stores a last result on the specification: `ok` or `failed`, a reason code (`longer`, `harness`, `uncalled`, `no_tests`, and others), optional detail, and the generation that was attempted. `/show` and `/specs` print that result. `/revert` records `ok` for the generation it adopts.
 
 ## Pin
 

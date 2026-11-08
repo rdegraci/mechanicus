@@ -78,9 +78,24 @@ def init_db():
             _ensure_column(conn, "artifacts", "adopted", "INTEGER DEFAULT 0")
             _ensure_column(conn, "artifacts", "generation", "INTEGER")
             _ensure_column(conn, "artifacts", "behavior", "TEXT")
+            _ensure_column(conn, "specs", "adopt_status", "TEXT")
+            _ensure_column(conn, "specs", "adopt_reason", "TEXT")
+            _ensure_column(conn, "specs", "adopt_detail", "TEXT")
+            _ensure_column(conn, "specs", "adopt_generation", "INTEGER")
+            _ensure_column(conn, "specs", "adopt_at", "TEXT")
             _backfill_generations(conn)
     finally:
         conn.close()
+
+
+def _clear_adopt_fields(conn, spec_id):
+    conn.execute(
+        """UPDATE specs SET
+               adopt_status = ?, adopt_reason = ?, adopt_detail = ?,
+               adopt_generation = NULL, adopt_at = NULL
+           WHERE id = ?""",
+        ("none", "", "", spec_id),
+    )
 
 
 def save_generation(name, behavior, code, tests, check):
@@ -103,6 +118,7 @@ def save_generation(name, behavior, code, tests, check):
                     (name, behavior, now),
                 )
                 spec_id = cursor.lastrowid
+            _clear_adopt_fields(conn, spec_id)
             current = conn.execute(
                 "SELECT COALESCE(MAX(generation), 0) FROM artifacts WHERE spec_id = ?",
                 (spec_id,),
@@ -126,9 +142,30 @@ def get_spec(name):
     conn = connect()
     try:
         return conn.execute(
-            "SELECT id, behavior, pinned FROM specs WHERE name = ?",
+            """SELECT id, behavior, pinned,
+                      adopt_status, adopt_reason, adopt_detail,
+                      adopt_generation, adopt_at
+               FROM specs WHERE name = ?""",
             (name,),
         ).fetchone()
+    finally:
+        conn.close()
+
+
+def record_adopt_result(name, status, reason, detail="", generation=None):
+    """Persist the last adopt attempt for a specification."""
+    conn = connect()
+    try:
+        with conn:
+            now = datetime.utcnow().isoformat()
+            cursor = conn.execute(
+                """UPDATE specs SET
+                       adopt_status = ?, adopt_reason = ?, adopt_detail = ?,
+                       adopt_generation = ?, adopt_at = ?
+                   WHERE name = ?""",
+                (status, reason, detail or "", generation, now, name),
+            )
+            return cursor.rowcount > 0
     finally:
         conn.close()
 

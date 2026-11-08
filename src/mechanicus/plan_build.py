@@ -10,10 +10,10 @@ from mechanicus.codegen import (
     propose_feature,
     repair_cycle,
 )
-from mechanicus.bootstrap_guard import refuse_bootstrap
+from mechanicus.bootstrap_guard import is_bootstrap_name, refuse_bootstrap
 from mechanicus.config import code_root, log
 from mechanicus.jev import _JEV_YES, _note_jev_skipped, feature_score, missing_behaviors
-from mechanicus.lifecycle import adopt_spec, spec_command, write_adopted
+from mechanicus.lifecycle import adopt_spec, disk_sync_status, spec_command, write_adopted
 from mechanicus.paths import layout_conflict, write_text_file
 from mechanicus.store import get_adopted_artifact, get_latest_artifact, get_spec
 
@@ -695,47 +695,148 @@ def separate_cycles(root, records):
     return changed
 
 
+def module_statuses(root, outcomes=None):
+    """Derive status rows for each .module file.
+
+    Each row: name, uses, status, reason, sync.
+    outcomes maps name -> (status, reason) from a build pass when provided.
+    """
+    root = Path(root).resolve()
+    records = module_records(root)
+    if not records:
+        return []
+    _, missing_for, invalid_for, blocked = _blocked_names(records)
+    cyclic = set()
+    for component in cyclic_components(records):
+        cyclic.update(component)
+    order, _skipped = arrange_modules(records)
+    order_names = {record["name"] for record in order}
+    outcomes = outcomes or {}
+    rows = []
+    for record in records:
+        name = record["name"]
+        uses = list(record["uses"])
+        sync = disk_sync_status(root, name)
+        if name in outcomes:
+            status, reason = outcomes[name]
+            rows.append({
+                "name": name,
+                "uses": uses,
+                "status": status,
+                "reason": reason,
+                "sync": sync,
+            })
+            continue
+        conflict = layout_conflict(root, name)
+        if is_bootstrap_name(name):
+            status, reason = "bootstrap", "bootstrap module"
+        elif conflict:
+            status, reason = "layout", conflict
+        elif not record["behavior"]:
+            status, reason = "empty", "empty behavior"
+        elif _module_is_pinned(name):
+            status, reason = "pinned", "pinned"
+        elif name in cyclic:
+            status, reason = "cyclic", "modules use each other"
+        elif name in invalid_for:
+            quoted = ", ".join(f"'{raw}'" for raw in invalid_for[name])
+            status, reason = "blocked", f"invalid uses {quoted}"
+        elif name in missing_for:
+            status, reason = "blocked", f"uses {', '.join(missing_for[name])}"
+        elif name in blocked:
+            status, reason = "blocked", "upstream module was not buildable"
+        elif name in order_names:
+            status, reason = "ready", "in build order"
+        else:
+            status, reason = "blocked", "not in build order"
+        rows.append({
+            "name": name,
+            "uses": uses,
+            "status": status,
+            "reason": reason,
+            "sync": sync,
+        })
+    return rows
+
+
+def print_module_statuses(rows, heading=None):
+    if heading:
+        print(heading)
+    if not rows:
+        print("No module files.")
+        return
+    name_width = max(len("name"), max(len(row["name"]) for row in rows))
+    status_width = max(len("status"), max(len(row["status"]) for row in rows))
+    sync_width = max(len("sync"), max(len(row["sync"]) for row in rows))
+    uses_width = max(
+        len("uses"),
+        max(len(", ".join(row["uses"]) or "-") for row in rows),
+    )
+    print(
+        f"{'name':<{name_width}}  {'status':<{status_width}}  "
+        f"{'sync':<{sync_width}}  {'uses':<{uses_width}}  reason"
+    )
+    for row in rows:
+        uses = ", ".join(row["uses"]) or "-"
+        print(
+            f"{row['name']:<{name_width}}  {row['status']:<{status_width}}  "
+            f"{row['sync']:<{sync_width}}  {uses:<{uses_width}}  {row['reason']}"
+        )
+
+
+def modules_command(root):
+    log.info("modules")
+    root = Path(root).resolve()
+    rows = module_statuses(root)
+    if not rows:
+        log.info("modules found no module files")
+        print("No module files.")
+        return
+    print_module_statuses(rows)
+
+
 def build_one(root, record):
     root = Path(root).resolve()
     spec_name = record["name"]
     if refuse_bootstrap(spec_name, "built"):
-        return
+        return "bootstrap", "bootstrap module"
     conflict = layout_conflict(root, spec_name)
     if conflict:
         log.info("build skipped layout %s", conflict)
         print(f"Skipped {conflict}")
-        return
+        return "layout", conflict
     prose = record["behavior"]
     canonical = record["text"]
     if not prose:
         log.info("build skipped empty %s", spec_name)
         print(f"'{spec_name}' is empty.")
-        return
+        return "empty", "empty behavior"
     spec = get_spec(spec_name)
     if spec is not None and spec["pinned"]:
         log.info("build skipped pinned %s", spec_name)
         print(f"'{spec_name}' is pinned. It was not changed.")
-        return
+        return "pinned", "pinned"
     modules, required, missing = dependency_modules(root, spec_name)
     if missing:
         names = ", ".join(missing)
         log.info("build skipped %s uses %s", spec_name, names)
         print(f"'{spec_name}' uses {names}, which is not adopted.")
-        return
+        return "blocked", f"uses {names}, which is not adopted"
     adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
     same = spec is not None and str(spec["behavior"]).strip() == canonical
     if same and adopted is not None and str(adopted["content"]).strip():
         log.info("build writes adopted %s", spec_name)
         print(f"'{spec_name}' is already adopted.")
-        write_adopted(root, spec_name)
-        return
+        if write_adopted(root, spec_name):
+            return "unchanged", "already adopted"
+        return "failed", "already adopted; disk was not updated"
     if not same:
         print(f"Building {spec_name}...")
         spec_command(spec_name, prose, modules, canonical, required)
         spec = get_spec(spec_name)
         if spec is None or str(spec["behavior"]).strip() != canonical:
             print(f"'{spec_name}' was not saved.")
-            return
+            return "failed", "was not saved"
     else:
         print(f"Adopting {spec_name}...")
     adopted = get_adopted_artifact(spec["id"], "code")
@@ -746,11 +847,13 @@ def build_one(root, record):
     adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
     if adopted is None or not str(adopted["content"]).strip():
         print(f"'{spec_name}' was not adopted.")
-        return
+        return "failed", "was not adopted"
     if str(adopted["behavior"] or "").strip() != canonical:
         print(f"'{spec_name}' was not adopted.")
-        return
-    write_adopted(root, spec_name)
+        return "failed", "adopted behavior does not match module"
+    if write_adopted(root, spec_name):
+        return "built", "adopted and wrote disk"
+    return "failed", "adopted; disk was not updated"
 
 
 def build_command(root):
@@ -761,11 +864,23 @@ def build_command(root):
         log.info("build found no module files")
         print("No module files.")
         return
+    print_module_statuses(module_statuses(root), heading="--- modules before build ---")
     if separate_cycles(root, records):
         records = module_records(root)
+        print_module_statuses(
+            module_statuses(root),
+            heading="--- modules after cycle repair ---",
+        )
     order, skipped = arrange_modules(records)
     for message in skipped:
         log.info("build %s", message)
         print(message)
+    outcomes = {}
     for record in order:
-        build_one(root, record)
+        status, reason = build_one(root, record)
+        outcomes[record["name"]] = (status, reason)
+        log.info("build %s -> %s (%s)", record["name"], status, reason)
+    print_module_statuses(
+        module_statuses(root, outcomes=outcomes),
+        heading="--- modules after build ---",
+    )

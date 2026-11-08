@@ -20,7 +20,13 @@ from mechanicus.lifecycle import (
     spec_command,
     test_command,
 )
-from mechanicus.plan_build import add_command, build_command, find_module_files, plan_command
+from mechanicus.plan_build import (
+    add_command,
+    build_command,
+    find_module_files,
+    modules_command,
+    plan_command,
+)
 from mechanicus.seed_import import import_source
 from mechanicus.store import init_db, pin_spec, unpin_spec
 from mechanicus.suggestions import get_suggestion, suggestions_command
@@ -50,6 +56,7 @@ def repl():
         print("  /plan [description]         - write a .module file for each recommended module")
         print("  /add <feature|n>            - add a feature, or apply suggestion n")
         print("  /build                      - build each .module file and write the adopted code")
+        print("  /modules                    - list .module files with build status and disk sync")
         print("  /import <name>              - import package source as adopted and pinned")
         print("  /specs                      - list specifications with pin, adopted generation, and disk sync")
         print("  /refactor <name>            - rewrite adopted code for clarity; tests stay fixed")
@@ -157,6 +164,8 @@ def repl():
                         add_command(root, feature)
             elif cmd == "/build" and len(parts) == 1:
                 build_command(root)
+            elif cmd == "/modules" and len(parts) == 1:
+                modules_command(root)
             elif cmd == "/import" and len(parts) == 2:
                 import_source(root, parts[1])
             elif cmd == "/specs" and len(parts) == 1:

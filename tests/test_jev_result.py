@@ -74,7 +74,7 @@ def test_spec_persists_jev_skipped(project, monkeypatch, capsys):
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.setattr(
         "mechanicus.lifecycle.generate_tests",
-        lambda behavior: type(
+        lambda behavior, modules=None, required=None: type(
             "R",
             (),
             {
@@ -118,7 +118,7 @@ def test_spec_persists_jev_failed(project, monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
     monkeypatch.setattr(
         "mechanicus.lifecycle.generate_tests",
-        lambda behavior: type(
+        lambda behavior, modules=None, required=None: type(
             "R",
             (),
             {

@@ -671,7 +671,7 @@ def tests_until_red(behavior, modules=None, required=None):
     """Write tests that fail against an empty module. Return None when they do not."""
     required = list(required or [])
     clear_last_jev()
-    result = generate_tests(behavior)
+    result = generate_tests(behavior, modules, required)
     repairs_left = configured_repair_attempts()
     repair_limit = repairs_left
     repair_number = 0
@@ -724,7 +724,9 @@ def tests_until_red(behavior, modules=None, required=None):
                 print("Repairing tests for the missing calls...")
                 log.info("repair tests for calls %s", ", ".join(name for name, _probability in weak))
                 try:
-                    result = repair_tests(behavior, tests, check, output, "uses")
+                    result = repair_tests(
+                        behavior, tests, check, output, "uses", modules, required
+                    )
                 except Exception as error:
                     log.exception("repair tests for calls failed")
                     print(f"Error: {error}")
@@ -745,7 +747,9 @@ def tests_until_red(behavior, modules=None, required=None):
         log.info("repair tests %s of %s reason=%s", repair_number, repair_limit, reason or kind)
         if reason and reason not in str(output):
             output = f"{reason}\n{output}"
-        result = repair_tests(behavior, tests, check, output, kind)
+        result = repair_tests(
+            behavior, tests, check, output, kind, modules, required
+        )
 
 
 def spec_command(name, behavior, modules=None, record=None, required=None):

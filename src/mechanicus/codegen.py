@@ -33,17 +33,41 @@ Do not start a subprocess to import the code.
 The check calls the functions in impl from the same process.
 """
 
-_TEST_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
+def _test_instructions(modules=None, required=None) -> str:
+    has_deps = bool(modules) or bool(required)
+    if has_deps:
+        import_rule = (
+            "You may import adopted dependency modules named in the request, "
+            "in addition to impl.\n"
+            "Use only the real APIs from those adopted sources. "
+            "Do not invent neighbor APIs.\n"
+            "The tests and the check must fail when the implementation never "
+            "calls a required module, or calls it incorrectly relative to "
+            "those adopted sources.\n"
+        )
+        tests_field = (
+            "pytest unit tests that import impl "
+            "(and may import adopted dependencies)"
+        )
+        check_field = (
+            "a higher-level pytest behavioral check that imports impl "
+            "(and may import adopted dependencies)"
+        )
+    else:
+        import_rule = "Do not import any module except impl.\n"
+        tests_field = "pytest unit tests that import impl"
+        check_field = "a higher-level pytest behavioral check that imports impl"
+    return _SHARED_INSTRUCTIONS + f"""
 Write the tests before the implementation. impl.py is empty.
 The tests and the check must fail because the behavior is not implemented yet.
 Do not write the implementation.
-Do not import any module except impl.
-
+{import_rule}
 Output fields:
-- tests: pytest unit tests that import impl
-- check: a higher-level pytest behavioral check that imports impl
+- tests: {tests_field}
+- check: {check_field}
 - explanation: one short paragraph
 """
+
 
 _CODE_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
 The tests and the check are already written. They are fixed.
@@ -178,25 +202,57 @@ def _request_generation(user_input: str, instructions: str, text_format):
     return response.output_parsed
 
 
-def generate_tests(behavior: str) -> TestsResult:
+def _test_modules_prompt(modules, required=None) -> str:
+    """Prompt block for test generation when adopted uses: deps are present."""
+    if not modules and not required:
+        return ""
+    names = [module_import(name) or name for name in (required or [])]
+    lines = [
+        "These modules are already adopted and available in the test harness.",
+        "Use only their real APIs as written below. Do not invent neighbor APIs.",
+        "You may import these dependency modules in addition to impl.",
+        "Do not import other project modules.",
+        "The tests and the check must fail when the implementation never calls "
+        "a required module, or calls it incorrectly relative to these adopted sources.",
+    ]
+    if names:
+        called = ", ".join(names)
+        lines.append(f"Required modules the implementation must call: {called}.")
+    for name, content in modules or []:
+        imported = module_import(name) or name
+        lines.append(f"\nModule {imported}:\n{str(content).rstrip()}")
+    return "\n".join(lines) + "\n\n"
+
+
+def generate_tests(behavior: str, modules=None, required=None) -> TestsResult:
     return _request_generation(
         "Behavioral specification:\n"
         f"{behavior}\n\n"
+        f"{_test_modules_prompt(modules, required)}"
         "Write the unit tests and the behavioral check first.\n"
         "impl.py is empty.\n"
         "The tests and the check must fail because the behavior is not implemented yet.",
-        _TEST_INSTRUCTIONS,
+        _test_instructions(modules, required),
         TestsResult,
     )
 
 
-def repair_tests(behavior: str, tests: str, check: str, output: str, kind: str) -> TestsResult:
+def repair_tests(
+    behavior: str,
+    tests: str,
+    check: str,
+    output: str,
+    kind: str,
+    modules=None,
+    required=None,
+) -> TestsResult:
     if kind == "pass":
         reason = "Pytest passed. The tests do not require the behavior."
     elif kind == "uses":
         reason = (
             "These tests can pass when the implementation never calls a required module. "
-            "The tests and the check must fail when that call is missing. "
+            "The tests and the check must fail when that call is missing or clearly wrong "
+            "relative to the adopted dependency sources. "
             "They must also fail while impl.py is empty."
         )
     else:
@@ -204,19 +260,26 @@ def repair_tests(behavior: str, tests: str, check: str, output: str, kind: str) 
             "Pytest did not fail on the missing behavior. "
             "A collection error, a missing module, a syntax error, or a passing test means the tests are wrong."
         )
+    has_deps = bool(modules) or bool(required)
+    import_note = (
+        "They must import impl, and may import the adopted dependency modules.\n"
+        if has_deps
+        else "They must import impl.\n"
+    )
     return _request_generation(
         "Behavioral specification:\n"
         f"{behavior}\n\n"
+        f"{_test_modules_prompt(modules, required)}"
         "impl.py is empty. The tests are written before the implementation.\n"
         f"{reason}\n"
         "Fix the tests and the check.\n"
-        "They must import impl.\n"
+        f"{import_note}"
         "They must fail because the behavior is not implemented.\n"
         "Do not write the implementation.\n\n"
         f"Current tests:\n{tests}\n\n"
         f"Current check:\n{check}\n\n"
         f"Pytest output:\n{_failure_text(output)}",
-        _TEST_INSTRUCTIONS,
+        _test_instructions(modules, required),
         TestsResult,
     )
 

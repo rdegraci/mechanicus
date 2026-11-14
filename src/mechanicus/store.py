@@ -1,4 +1,5 @@
 """SQLite specifications and artifacts."""
+import json
 import sqlite3
 from datetime import datetime
 
@@ -83,6 +84,12 @@ def init_db():
             _ensure_column(conn, "specs", "adopt_detail", "TEXT")
             _ensure_column(conn, "specs", "adopt_generation", "INTEGER")
             _ensure_column(conn, "specs", "adopt_at", "TEXT")
+            _ensure_column(conn, "specs", "deps_fingerprint", "TEXT")
+            _ensure_column(conn, "specs", "jev_status", "TEXT")
+            _ensure_column(conn, "specs", "jev_reason", "TEXT")
+            _ensure_column(conn, "specs", "jev_detail", "TEXT")
+            _ensure_column(conn, "specs", "jev_gate", "TEXT")
+            _ensure_column(conn, "specs", "jev_at", "TEXT")
             _backfill_generations(conn)
     finally:
         conn.close()
@@ -95,6 +102,16 @@ def _clear_adopt_fields(conn, spec_id):
                adopt_generation = NULL, adopt_at = NULL
            WHERE id = ?""",
         ("none", "", "", spec_id),
+    )
+
+
+def _clear_jev_fields(conn, spec_id):
+    conn.execute(
+        """UPDATE specs SET
+               jev_status = ?, jev_reason = ?, jev_detail = ?,
+               jev_gate = ?, jev_at = NULL
+           WHERE id = ?""",
+        ("none", "", "", "", spec_id),
     )
 
 
@@ -119,6 +136,7 @@ def save_generation(name, behavior, code, tests, check):
                 )
                 spec_id = cursor.lastrowid
             _clear_adopt_fields(conn, spec_id)
+            _clear_jev_fields(conn, spec_id)
             current = conn.execute(
                 "SELECT COALESCE(MAX(generation), 0) FROM artifacts WHERE spec_id = ?",
                 (spec_id,),
@@ -144,12 +162,112 @@ def get_spec(name):
         return conn.execute(
             """SELECT id, behavior, pinned,
                       adopt_status, adopt_reason, adopt_detail,
-                      adopt_generation, adopt_at
+                      adopt_generation, adopt_at, deps_fingerprint,
+                      jev_status, jev_reason, jev_detail, jev_gate, jev_at
                FROM specs WHERE name = ?""",
             (name,),
         ).fetchone()
     finally:
         conn.close()
+
+
+def record_jev_result(name, status, reason, detail="", gate=""):
+    """Persist the last Jev outcome for a specification."""
+    conn = connect()
+    try:
+        with conn:
+            now = datetime.utcnow().isoformat()
+            cursor = conn.execute(
+                """UPDATE specs SET
+                       jev_status = ?, jev_reason = ?, jev_detail = ?,
+                       jev_gate = ?, jev_at = ?
+                   WHERE name = ?""",
+                (status, reason, detail or "", gate or "", now, name),
+            )
+            return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def deps_fingerprint_for(uses_names):
+    """JSON map of each uses: name to its adopted code generation."""
+    fingerprint = {}
+    for use in uses_names or []:
+        spec = get_spec(use)
+        if spec is None:
+            continue
+        adopted = get_adopted_artifact(spec["id"], "code")
+        if adopted is None or adopted["generation"] is None:
+            continue
+        fingerprint[use] = int(adopted["generation"])
+    return json.dumps(fingerprint, sort_keys=True)
+
+
+def get_deps_fingerprint(name):
+    spec = get_spec(name)
+    if spec is None:
+        return None
+    value = spec["deps_fingerprint"]
+    if value is None or str(value).strip() == "":
+        return None
+    return str(value)
+
+
+def set_deps_fingerprint(name, fingerprint):
+    """Persist a dependency fingerprint JSON string on the specification."""
+    conn = connect()
+    try:
+        with conn:
+            cursor = conn.execute(
+                "UPDATE specs SET deps_fingerprint = ? WHERE name = ?",
+                (fingerprint, name),
+            )
+            return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def record_deps_fingerprint(name, uses_names):
+    """Store the current adopted generations for uses_names on name."""
+    return set_deps_fingerprint(name, deps_fingerprint_for(uses_names))
+
+
+def clear_deps_fingerprint(name):
+    """Clear the stored dependency fingerprint for name."""
+    return set_deps_fingerprint(name, None)
+
+
+def deps_are_current(spec_name, uses_names):
+    """True when the stored fingerprint matches uses_names.
+
+    No stored fingerprint is current when there are no uses, or when the
+    spec is not yet adopted (never built — ready, not stale). An adopted
+    spec that declares uses without a fingerprint is not current until
+    adopt (or import) records one.
+    """
+    uses = [use for use in (uses_names or []) if use]
+    stored = get_deps_fingerprint(spec_name)
+    if stored is None:
+        if not uses:
+            return True
+        spec = get_spec(spec_name)
+        if spec is None:
+            return True
+        adopted = get_adopted_artifact(spec["id"], "code")
+        if adopted is None:
+            return True
+        return False
+    try:
+        stored_map = json.loads(stored)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(stored_map, dict):
+        return False
+    try:
+        expected_map = json.loads(deps_fingerprint_for(uses))
+    except (TypeError, ValueError):
+        return False
+    return stored_map == expected_map
 
 
 def record_adopt_result(name, status, reason, detail="", generation=None):

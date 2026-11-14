@@ -1,13 +1,18 @@
 """Fixture tests for SQLite specs and artifacts."""
 from mechanicus.store import (
+    clear_deps_fingerprint,
+    deps_are_current,
+    deps_fingerprint_for,
     generation_numbers,
     get_adopted_artifact,
+    get_deps_fingerprint,
     get_latest_artifact,
     get_spec,
     list_spec_names,
     longer_than_adopted,
     mark_adopted,
     pin_spec,
+    record_deps_fingerprint,
     save_generation,
     unpin_spec,
 )
@@ -102,3 +107,44 @@ def test_save_generation_rejects_non_string(project):
         assert "code" in str(error)
     else:
         raise AssertionError("expected TypeError")
+
+
+def test_deps_fingerprint_round_trip(project):
+    lib_id, lib_gen = save_generation("lib", "library", "VALUE = 1\n", "t", "c")
+    mark_adopted(lib_id, lib_gen)
+    app_id, app_gen = save_generation("app", "application", "import lib\n", "t", "c")
+    assert get_deps_fingerprint("app") is None
+    assert deps_are_current("app", ["lib"]) is True
+    mark_adopted(app_id, app_gen)
+    assert deps_are_current("app", ["lib"]) is False
+    assert deps_are_current("app", []) is True
+    assert record_deps_fingerprint("app", ["lib"]) is True
+    stored = get_deps_fingerprint("app")
+    assert stored == deps_fingerprint_for(["lib"])
+    assert '"lib"' in stored
+    assert deps_are_current("app", ["lib"]) is True
+
+
+def test_deps_are_current_false_when_dep_generation_bumps(project):
+    lib_id, first = save_generation("lib", "library", "VALUE = 1\n", "t", "c")
+    mark_adopted(lib_id, first)
+    app_id, app_gen = save_generation("app", "application", "import lib\n", "t", "c")
+    mark_adopted(app_id, app_gen)
+    record_deps_fingerprint("app", ["lib"])
+    _, second = save_generation("lib", "library", "VALUE = 2\n", "t", "c")
+    mark_adopted(lib_id, second)
+    assert deps_are_current("app", ["lib"]) is False
+    record_deps_fingerprint("app", ["lib"])
+    assert deps_are_current("app", ["lib"]) is True
+
+
+def test_clear_deps_fingerprint(project):
+    lib_id, lib_gen = save_generation("lib", "library", "VALUE = 1\n", "t", "c")
+    mark_adopted(lib_id, lib_gen)
+    app_id, app_gen = save_generation("app", "application", "import lib\n", "t", "c")
+    mark_adopted(app_id, app_gen)
+    record_deps_fingerprint("app", ["lib"])
+    assert get_deps_fingerprint("app") is not None
+    assert clear_deps_fingerprint("app") is True
+    assert get_deps_fingerprint("app") is None
+    assert deps_are_current("app", ["lib"]) is False

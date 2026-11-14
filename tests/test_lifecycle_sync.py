@@ -1,6 +1,13 @@
 """Fixture tests for DB ↔ disk sync (HL2)."""
 from mechanicus.lifecycle import disk_sync_status, revert_spec, write_adopted
-from mechanicus.store import get_adopted_artifact, get_spec, mark_adopted, save_generation
+from mechanicus.store import (
+    get_adopted_artifact,
+    get_deps_fingerprint,
+    get_spec,
+    mark_adopted,
+    record_deps_fingerprint,
+    save_generation,
+)
 
 
 def _two_generations():
@@ -76,3 +83,30 @@ def test_revert_keeps_db_when_disk_write_blocked(project, monkeypatch):
     assert get_adopted_artifact(spec_id, "code")["generation"] == first
     assert get_spec("greet") is not None
     assert (project / "greet.py").read_text() == "def greet():\n    return 'two'\n"
+
+
+def test_revert_clears_deps_fingerprint(project):
+    lib_id, lib_gen = save_generation("lib", "library", "VALUE = 1\n", "t", "c")
+    mark_adopted(lib_id, lib_gen)
+    app_id, first = save_generation(
+        "app",
+        "application",
+        "import lib\nVALUE = 1\n",
+        "t",
+        "c",
+    )
+    mark_adopted(app_id, first)
+    record_deps_fingerprint("app", ["lib"])
+    _, second = save_generation(
+        "app",
+        "application",
+        "import lib\nVALUE = 2\n",
+        "t",
+        "c",
+    )
+    mark_adopted(app_id, second)
+    record_deps_fingerprint("app", ["lib"])
+    assert get_deps_fingerprint("app") is not None
+    revert_spec("app", first, project, write_disk=False)
+    assert get_adopted_artifact(app_id, "code")["generation"] == first
+    assert get_deps_fingerprint("app") is None

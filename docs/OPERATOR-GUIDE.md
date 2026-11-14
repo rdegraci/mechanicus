@@ -43,9 +43,9 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/build <name>` | Builds one `.module` file. Dependencies must already be adopted. Refuses modules still in a cycle. |
 | `/modules` | Lists each `.module` file with build status, disk sync, uses, and a short reason. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
-| `/specs` | Lists each specification with pin, adopted generation, disk sync, and last adopt result. |
+| `/specs` | Lists each specification with pin, adopted generation, disk sync, last adopt, and last Jev result. |
 | `/refactor <name>` | Rewrites adopted code for clarity. Tests and the check stay fixed. |
-| `/show <name>` | Prints the specification, disk sync, last adopt result, adopted generation, and a newer candidate. |
+| `/show <name>` | Prints the specification, disk sync, last adopt result, last Jev result, adopted generation, and a newer candidate. |
 | `/adopt <name>` | Runs the tests. Repairs the code, then adopts a generation that passes. Records the last adopt result. |
 | `/pin <name>` | Pins the specification and the latest code. |
 | `/unpin <name>` | Clears that pin. |
@@ -73,13 +73,13 @@ Mechanicus starts in command mode. When `.mechanicus/application.txt` or a `.mod
 
 Mechanicus runs the tests against an empty module. The tests must fail in a way that proves the behavior is missing. Mechanicus rejects weak tests: missing `impl` use, trivial asserts such as `assert False`, mixed pass/fail runs, and failures that do not involve `impl`. Mechanicus repairs the tests when they pass or when they are broken. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. Mechanicus does not save a generation when the tests do not go red.
 
-When a module names another module in `uses:`, Jev reads the tests. Jev asks whether the tests fail when the code never calls that module. A score below 0.7 sends the tests to the writing model once. Mechanicus keeps those tests.
+When a module names another module in `uses:`, Jev reads the tests. Jev asks whether the tests fail when the code never calls that module. A score below 0.7 sends the tests to the writing model once. Mechanicus keeps those tests. Each Jev check records `ok`, `skipped` (no `TYPESAFE_API_KEY`), or `failed` (API or network error). `/show` and `/specs` print that result for the specification. A new saved generation clears it until the next Jev check on that name.
 
 Mechanicus does not adopt the new generation yet. Mechanicus does not replace a pinned specification. It does not call the model for that name.
 
-`/specs` prints each specification name, whether it is pinned, the adopted generation number, disk sync (`ok`, `differ`, `missing`, or `none`), and the last adopt result (`ok`, `failed`, or `none`). When no specification is adopted yet, the generation is `none` and sync is `none`.
+`/specs` prints each specification name, whether it is pinned, the adopted generation number, disk sync (`ok`, `differ`, `missing`, or `none`), the last adopt result (`ok`, `failed`, or `none`), and the last Jev result (`ok`, `skipped`, `failed`, or `none`). When no specification is adopted yet, the generation is `none` and sync is `none`.
 
-`/show` prints the behavior, the pin flag, and disk sync. It prints the last adopt result (`Adopt: ok|failed|none`) with a reason code and optional detail. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate. A new saved generation clears the last adopt result until `/adopt` runs again.
+`/show` prints the behavior, the pin flag, and disk sync. It prints the last adopt result (`Adopt: ok|failed|none`) with a reason code and optional detail. It prints the last Jev result (`Jev: ok|skipped|failed|none`) with a reason code, gate (`tests`, `plan`, or `feature`), and optional detail. It prints the adopted code, tests, and check. If the latest generation is not adopted, `/show` also prints that candidate. A new saved generation clears the last adopt result and the last Jev result until `/adopt` or the next Jev check runs again.
 
 A generation number starts at 1. `/show` prints the number. Use that number with `/revert`.
 
@@ -147,7 +147,7 @@ Jev reads the modules after that change. A score below 0.7 sends the change back
 
 1. Enter `/modules`.
 
-`/modules` lists each `.module` file with its build status, disk sync, `uses:` list, and a short reason. Status values include `ready`, `pinned`, `blocked`, `cyclic`, `empty`, `layout`, and `bootstrap`. After a build, statuses can also be `built`, `failed`, or `unchanged`. Sync values match `/specs` (`ok`, `differ`, `missing`, `none`). `/modules` does not call the model and does not build.
+`/modules` lists each `.module` file with its build status, disk sync, `uses:` list, and a short reason. Status values include `ready`, `pinned`, `stale`, `blocked`, `cyclic`, `empty`, `layout`, and `bootstrap`. `stale` means a `uses:` dependency’s adopted generation changed since this module was last adopted, or that an already-adopted module has no dependency fingerprint yet (`deps not recorded`). When the module is also pinned, the reason is `pinned; upstream changed` or `pinned; deps not recorded`. After a build, statuses can also be `built`, `failed`, or `unchanged`. Sync values match `/specs` (`ok`, `differ`, `missing`, `none`). `/modules` does not call the model and does not build.
 
 ## Build
 
@@ -164,7 +164,7 @@ When modules use each other, Mechanicus adds one module for the shared job. The 
 
 Pytest loads the module under test as `impl.py`. It also loads each adopted module named in `uses:`, and the modules those modules use. The code must call each module named in its own `uses:` line. An unused import does not pass. A module that names a missing module is not built.
 
-A pinned specification does not change. A module that is already adopted for the same behavior is written to disk and is not sent to the model. A module that fails is reported. Mechanicus does not write that module.
+A pinned specification does not change. A module that is already adopted for the same behavior is written to disk and is not sent to the model, unless a `uses:` dependency’s adopted generation changed since this module was last adopted. In that case Mechanicus re-runs adopt against the current dependencies. If adopt fails, it regenerates the module, then adopts again. A module that fails is reported. Mechanicus does not write that module.
 
 ## Adopt
 
@@ -190,7 +190,7 @@ Each `/adopt` stores a last result on the specification: `ok` or `failed`, a rea
 1. If the specification is pinned, enter `/unpin` and the name.
 2. Enter `/revert`, the name, and the generation number.
 
-`/revert` does not call the model. `/revert` does not run pytest. Mechanicus refuses `/revert` while the specification is pinned. By default `/revert` writes the adopted generation to disk the same way `/generate` does. If that write fails, the database still holds the reverted generation and Mechanicus reports that disk was not updated. Enter `/revert`, the name, the generation, and `--db-only` when you want to change adoption without writing disk.
+`/revert` does not call the model. `/revert` does not run pytest. Mechanicus refuses `/revert` while the specification is pinned. By default `/revert` writes the adopted generation to disk the same way `/generate` does. If that write fails, the database still holds the reverted generation and Mechanicus reports that disk was not updated. Enter `/revert`, the name, the generation, and `--db-only` when you want to change adoption without writing disk. `/revert` clears the dependency fingerprint, so a module that names `uses:` becomes `stale` until `/adopt` records a new fingerprint against the current dependencies.
 
 ## Write files
 
@@ -240,6 +240,6 @@ Set `package_root` to `src/mechanicus`. Start from the repository root. Enter `/
 4. Save the file.
 5. Start Mechanicus again.
 
-When `TYPESAFE_API_KEY` is empty, Mechanicus skips Jev.
+When `TYPESAFE_API_KEY` is empty, Mechanicus skips Jev and records `skipped` with reason `no_key`. When the Jev API fails, Mechanicus records `failed` and continues without treating the miss as approval.
 
 The example file is `src/mechanicus/dot_env.example`.

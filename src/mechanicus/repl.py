@@ -58,8 +58,8 @@ _COMMAND_HELP = (
         (
             ("/spec <name> <behavior>", "Store a spec, write failing tests, then generate code."),
             ("/adopt <name>", "Run tests, repair the code, and adopt when they pass."),
-            ("/show <name>", "Show the spec, sync, last adopt, rendering, and candidate."),
-            ("/specs", "List specs with pin, adopted generation, sync, and last adopt."),
+            ("/show <name>", "Show the spec, sync, last adopt, last Jev, rendering, and candidate."),
+            ("/specs", "List specs with pin, adopted generation, sync, adopt, and Jev."),
             ("/pin <name>", "Pin a spec so it cannot be regenerated or overwritten."),
             ("/unpin <name>", "Clear that pin."),
             ("/revert <name> <generation> [--db-only]", "Adopt an earlier generation; write disk unless --db-only."),

@@ -12,10 +12,22 @@ from mechanicus.codegen import (
 )
 from mechanicus.bootstrap_guard import is_bootstrap_name, refuse_bootstrap
 from mechanicus.config import code_root, log
-from mechanicus.jev import _JEV_YES, _note_jev_skipped, feature_score, missing_behaviors
+from mechanicus.jev import (
+    _JEV_YES,
+    _note_jev_failed,
+    _note_jev_skipped,
+    feature_score,
+    missing_behaviors,
+)
 from mechanicus.lifecycle import adopt_spec, disk_sync_status, spec_command, write_adopted
 from mechanicus.paths import layout_conflict, write_text_file
-from mechanicus.store import get_adopted_artifact, get_latest_artifact, get_spec
+from mechanicus.store import (
+    deps_are_current,
+    get_adopted_artifact,
+    get_deps_fingerprint,
+    get_latest_artifact,
+    get_spec,
+)
 
 
 _SKIP_DIR_NAMES = {".mechanicus", ".git", ".venv", "venv", "__pycache__", ".pytest_cache"}
@@ -186,7 +198,7 @@ def _planned_module_records(root, modules, seen_names):
 def _cover_plan(root, description, normalized):
     """Add modules for behaviors Jev says the plan does not cover."""
     if not os.environ.get("TYPESAFE_API_KEY", "").strip():
-        _note_jev_skipped()
+        _note_jev_skipped(gate="plan")
         return normalized
     try:
         listed = list_behaviors(description)
@@ -207,7 +219,7 @@ def _cover_plan(root, description, normalized):
     except Exception as error:
         log.exception("jev plan failed")
         print(f"Error: {error}")
-        print("Jev did not judge the plan.")
+        _note_jev_failed("error", str(error), gate="plan")
         return normalized
     if not missing:
         return normalized
@@ -351,7 +363,7 @@ def add_command(root, feature):
     except Exception as error:
         log.exception("jev feature failed")
         print(f"Error: {error}")
-        print("Jev did not judge the feature.")
+        _note_jev_failed("error", str(error), gate="feature")
         score = None
     chosen = proposal
     if score is not None and score < _JEV_YES:
@@ -728,13 +740,14 @@ def module_statuses(root, outcomes=None):
             })
             continue
         conflict = layout_conflict(root, name)
+        pinned = _module_is_pinned(name)
         if is_bootstrap_name(name):
             status, reason = "bootstrap", "bootstrap module"
         elif conflict:
             status, reason = "layout", conflict
         elif not record["behavior"]:
             status, reason = "empty", "empty behavior"
-        elif _module_is_pinned(name):
+        elif pinned and deps_are_current(name, uses):
             status, reason = "pinned", "pinned"
         elif name in cyclic:
             status, reason = "cyclic", "modules use each other"
@@ -745,6 +758,16 @@ def module_statuses(root, outcomes=None):
             status, reason = "blocked", f"uses {', '.join(missing_for[name])}"
         elif name in blocked:
             status, reason = "blocked", "upstream module was not buildable"
+        elif not deps_are_current(name, uses):
+            if get_deps_fingerprint(name) is None:
+                if pinned:
+                    status, reason = "stale", "pinned; deps not recorded"
+                else:
+                    status, reason = "stale", "deps not recorded"
+            elif pinned:
+                status, reason = "stale", "pinned; upstream changed"
+            else:
+                status, reason = "stale", "upstream changed"
         elif name in order_names:
             status, reason = "ready", "in build order"
         else:
@@ -824,13 +847,38 @@ def build_one(root, record):
         return "blocked", f"uses {names}, which is not adopted"
     adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
     same = spec is not None and str(spec["behavior"]).strip() == canonical
-    if same and adopted is not None and str(adopted["content"]).strip():
+    has_adopted = adopted is not None and str(adopted["content"]).strip()
+    deps_ok = deps_are_current(spec_name, required)
+    if same and has_adopted and deps_ok:
         log.info("build writes adopted %s", spec_name)
         print(f"'{spec_name}' is already adopted.")
         if write_adopted(root, spec_name):
             return "unchanged", "already adopted"
         return "failed", "already adopted; disk was not updated"
-    if not same:
+    rebuilt_upstream = False
+    if same and has_adopted and not deps_ok:
+        rebuilt_upstream = True
+        log.info("build re-adopts stale %s", spec_name)
+        print(f"'{spec_name}' has upstream changes. Re-adopting...")
+        adopt_spec(spec_name, modules, required)
+        spec = get_spec(spec_name)
+        adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
+        if (
+            deps_are_current(spec_name, required)
+            and adopted is not None
+            and str(adopted["content"]).strip()
+            and str(adopted["behavior"] or "").strip() == canonical
+        ):
+            if write_adopted(root, spec_name):
+                return "built", "re-adopted after upstream change"
+            return "failed", "re-adopted; disk was not updated"
+        print(f"Building {spec_name}...")
+        spec_command(spec_name, prose, modules, canonical, required)
+        spec = get_spec(spec_name)
+        if spec is None or str(spec["behavior"]).strip() != canonical:
+            print(f"'{spec_name}' was not saved.")
+            return "failed", "was not saved"
+    elif not same:
         print(f"Building {spec_name}...")
         spec_command(spec_name, prose, modules, canonical, required)
         spec = get_spec(spec_name)
@@ -851,7 +899,12 @@ def build_one(root, record):
     if str(adopted["behavior"] or "").strip() != canonical:
         print(f"'{spec_name}' was not adopted.")
         return "failed", "adopted behavior does not match module"
+    if not deps_are_current(spec_name, required):
+        print(f"'{spec_name}' was not adopted.")
+        return "failed", "was not adopted"
     if write_adopted(root, spec_name):
+        if rebuilt_upstream:
+            return "built", "rebuilt after upstream change"
         return "built", "adopted and wrote disk"
     return "failed", "adopted; disk was not updated"
 

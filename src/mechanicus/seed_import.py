@@ -3,7 +3,7 @@ from mechanicus.bootstrap_guard import refuse_bootstrap
 from mechanicus.config import code_root, log
 from mechanicus.plan_build import format_module_text, module_output_path, parse_module_text
 from mechanicus.paths import adopted_output_path
-from mechanicus.store import mark_adopted, pin_spec, save_generation
+from mechanicus.store import mark_adopted, pin_spec, record_deps_fingerprint, save_generation
 
 _IMPORT_TESTS = """import impl
 
@@ -36,10 +36,12 @@ def import_source(root, name, pin=True):
         print(f"'{name}' is empty.")
         return False
     _spec_name, module_path = module_output_path(root, name)
+    uses = []
     if module_path is not None and module_path.is_file():
         uses, behavior, invalid = parse_module_text(module_path.read_text())
         if invalid:
             print(f"Ignored invalid uses in '{module_path.name}'.")
+        uses = [use for use in uses if use != name]
         recorded = format_module_text(uses, behavior).strip() or behavior.strip()
     else:
         recorded = f"Imported source for {name}."
@@ -60,6 +62,7 @@ def import_source(root, name, pin=True):
         log.info("import failed to adopt %s", name)
         print(f"Could not adopt generation {generation}.")
         return False
+    record_deps_fingerprint(name, uses)
     if pin:
         pin_spec(name)
     relative = destination.relative_to(code_root(root)).as_posix()

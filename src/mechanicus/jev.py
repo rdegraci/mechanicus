@@ -10,16 +10,60 @@ from mechanicus.paths import module_import
 
 _JEV_YES = 0.7
 _JEV_URL = "https://api.typesafe.ai/v1/systemone"
-_JEV_SKIP_PRINTED = False
+_LAST_JEV = {
+    "status": "none",
+    "reason": "",
+    "detail": "",
+    "gate": "",
+}
 
 
-def _note_jev_skipped():
-    global _JEV_SKIP_PRINTED
-    log.info("jev skipped: no api key")
-    if _JEV_SKIP_PRINTED:
-        return
-    _JEV_SKIP_PRINTED = True
-    print("Jev was not called. Set TYPESAFE_API_KEY.")
+def last_jev_result():
+    """Return a copy of the last in-process Jev outcome."""
+    return dict(_LAST_JEV)
+
+
+def clear_last_jev():
+    """Reset the in-process Jev outcome to none."""
+    _LAST_JEV["status"] = "none"
+    _LAST_JEV["reason"] = ""
+    _LAST_JEV["detail"] = ""
+    _LAST_JEV["gate"] = ""
+
+
+def note_jev_result(status, reason, detail="", gate=""):
+    """Record and print a structured Jev outcome (ok, skipped, or failed)."""
+    _LAST_JEV["status"] = status
+    _LAST_JEV["reason"] = reason
+    _LAST_JEV["detail"] = detail or ""
+    _LAST_JEV["gate"] = gate or ""
+    log.info(
+        "jev result status=%s reason=%s gate=%s detail=%s",
+        status,
+        reason,
+        gate or "",
+        (detail or "")[:200],
+    )
+    line = f"Jev: {status} reason={reason}"
+    if gate:
+        line += f" gate={gate}"
+    print(line)
+    if detail and status == "failed":
+        print(f"detail: {detail}")
+    return last_jev_result()
+
+
+def _note_jev_skipped(gate=""):
+    detail = "TYPESAFE_API_KEY is empty."
+    return note_jev_result("skipped", "no_key", detail, gate)
+
+
+def _note_jev_failed(reason, detail="", gate=""):
+    return note_jev_result("failed", reason, detail, gate)
+
+
+def _note_jev_ok(gate="", detail=""):
+    return note_jev_result("ok", "ok", detail, gate)
 
 
 def _noul(answers, key):
@@ -92,7 +136,7 @@ def missing_behaviors(description, modules, parts):
         }
     answers = ask_jev(_plan_state(description, modules), questions)
     if answers is None:
-        _note_jev_skipped()
+        _note_jev_skipped(gate="plan")
         return None
     missing = []
     for index, part in enumerate(parts):
@@ -101,6 +145,8 @@ def missing_behaviors(description, modules, parts):
         if probability < _JEV_YES:
             missing.append(part)
             print(f"No module performs this behavior ({probability:.2f}): {part}")
+    detail = f"missing={len(missing)}" if missing else ""
+    _note_jev_ok(gate="plan", detail=detail)
     return missing
 
 
@@ -119,10 +165,11 @@ def feature_score(feature, modules):
         },
     )
     if answers is None:
-        _note_jev_skipped()
+        _note_jev_skipped(gate="feature")
         return None
     probability = _noul(answers, "feature")
     log.info("jev feature %.2f %s", probability, feature)
+    _note_jev_ok(gate="feature", detail=f"score={probability:.2f}")
     return probability
 
 
@@ -142,7 +189,7 @@ def weak_call_tests(behavior, tests, check, required):
     state = f"Behavior:\n{behavior}\n\nTests:\n{tests}\n\nCheck:\n{check}"
     answers = ask_jev(state, questions)
     if answers is None:
-        _note_jev_skipped()
+        _note_jev_skipped(gate="tests")
         return None
     weak = []
     for index, imported in enumerate(labels):
@@ -150,4 +197,8 @@ def weak_call_tests(behavior, tests, check, required):
         log.info("jev tests %s %.2f", imported, probability)
         if probability < _JEV_YES:
             weak.append((imported, probability))
+    detail = ""
+    if weak:
+        detail = "weak=" + ",".join(name for name, _probability in weak)
+    _note_jev_ok(gate="tests", detail=detail)
     return weak

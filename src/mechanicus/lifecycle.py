@@ -23,7 +23,12 @@ from mechanicus.harness import (
     tests_for_disk,
     uncalled_modules,
 )
-from mechanicus.jev import weak_call_tests
+from mechanicus.jev import (
+    clear_last_jev,
+    last_jev_result,
+    note_jev_result,
+    weak_call_tests,
+)
 from mechanicus.paths import adopted_output_path, layout_conflict, test_output_path, write_text_file
 from mechanicus.store import (
     generation_numbers,
@@ -35,6 +40,9 @@ from mechanicus.store import (
     longer_than_adopted,
     mark_adopted,
     record_adopt_result,
+    clear_deps_fingerprint,
+    record_deps_fingerprint,
+    record_jev_result,
     save_generation,
 )
 
@@ -166,6 +174,18 @@ def show_spec(name, root=None):
             print(f"detail: {spec['adopt_detail']}")
     else:
         print("Adopt: none")
+    jev_status = spec["jev_status"] or "none"
+    if jev_status != "none":
+        jev_line = f"Jev: {jev_status}"
+        if spec["jev_reason"]:
+            jev_line += f" reason={spec['jev_reason']}"
+        if spec["jev_gate"]:
+            jev_line += f" gate={spec['jev_gate']}"
+        print(jev_line)
+        if spec["jev_detail"]:
+            print(f"detail: {spec['jev_detail']}")
+    else:
+        print("Jev: none")
     adopted = get_adopted_artifact(spec["id"], "code")
     latest = get_latest_artifact(spec["id"], "code")
     if adopted is None:
@@ -206,9 +226,10 @@ def list_specs(root=None):
         generation = adopted["generation"] if adopted is not None else "none"
         sync = disk_sync_status(root, name)
         adopt = (spec["adopt_status"] or "none") if spec is not None else "none"
+        jev = (spec["jev_status"] or "none") if spec is not None else "none"
         print(
             f"{name:<{width}}  pinned={pinned}  adopted={generation}  "
-            f"sync={sync}  adopt={adopt}"
+            f"sync={sync}  adopt={adopt}  jev={jev}"
         )
 
 
@@ -332,6 +353,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                     _note_adopt(name, "failed", "longer", detail, code["generation"])
                     return
             mark_adopted(spec["id"], code["generation"])
+            record_deps_fingerprint(name, required)
             log.info("adopted generation %s", code["generation"])
             print("Tests passed. Adopted.")
             _note_adopt(name, "ok", "ok", "Tests passed. Adopted.", code["generation"])
@@ -491,6 +513,9 @@ def revert_spec(name, generation, root=None, write_disk=True):
         print(f"Generation {generation} not found. Available: {available}.")
         return
     mark_adopted(spec["id"], generation)
+    # Do not stamp current dependency generations: this generation was not
+    # re-checked against them. Clearing marks the module stale until adopt.
+    clear_deps_fingerprint(name)
     log.info("reverted %s to generation %s", name, generation)
     print(f"Reverted '{name}' to generation {generation}.")
     _note_adopt(name, "ok", "ok", f"Reverted to generation {generation}.", generation)
@@ -619,9 +644,33 @@ def _print_tests(tests, check, explanation):
     print(f"\n{explanation}")
 
 
+def _persist_last_jev(name):
+    outcome = last_jev_result()
+    status = outcome.get("status") or "none"
+    if status == "none":
+        return False
+    recorded = record_jev_result(
+        name,
+        status,
+        outcome.get("reason") or "",
+        outcome.get("detail") or "",
+        outcome.get("gate") or "",
+    )
+    if recorded:
+        log.info(
+            "jev result %s status=%s reason=%s gate=%s",
+            name,
+            status,
+            outcome.get("reason") or "",
+            outcome.get("gate") or "",
+        )
+    return recorded
+
+
 def tests_until_red(behavior, modules=None, required=None):
     """Write tests that fail against an empty module. Return None when they do not."""
     required = list(required or [])
+    clear_last_jev()
     result = generate_tests(behavior)
     repairs_left = configured_repair_attempts()
     repair_limit = repairs_left
@@ -662,7 +711,7 @@ def tests_until_red(behavior, modules=None, required=None):
             except Exception as error:
                 log.exception("jev tests failed")
                 print(f"Error: {error}")
-                print("Jev did not judge the tests.")
+                note_jev_result("failed", "error", str(error), gate="tests")
                 weak = []
             if weak:
                 details = ", ".join(f"{name} ({probability:.2f})" for name, probability in weak)
@@ -738,6 +787,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         log.exception("code generation failed for %s", name)
         try:
             _, generation = save_generation(name, recorded, "", tests, check)
+            _persist_last_jev(name)
         except Exception as save_error:
             log.exception("spec failed for %s", name)
             print(f"Error: {save_error}")
@@ -748,6 +798,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         return
     try:
         spec_id, generation = save_generation(name, recorded, result.code, tests, check)
+        _persist_last_jev(name)
     except Exception as error:
         log.exception("spec failed for %s", name)
         print(f"Error: {error}")

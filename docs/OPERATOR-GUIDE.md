@@ -23,6 +23,8 @@ Each start writes a new file in `~/Library/Application Support/mechanicus/logs`.
 
 You can also run the `mechanicus` command after install. Enter `/quit` to stop.
 
+The chat loop uses prompt_toolkit. Up and Down move through prior lines. Tab completes slash commands. Mechanicus stores that history in `~/Library/Application Support/mechanicus/repl_history` (or under `MECHANICUS_APPDIR` when set).
+
 ## Commands
 
 The name is one token. The behavior is the rest of the line. A blank line does nothing.

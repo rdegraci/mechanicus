@@ -1,5 +1,16 @@
 """Mechanicus REPL."""
-from mechanicus.config import close_session_log, ensure_app_files, log, start_session_log, startup_dir
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.history import FileHistory
+
+from mechanicus.config import (
+    app_dir,
+    close_session_log,
+    ensure_app_files,
+    log,
+    start_session_log,
+    startup_dir,
+)
 from mechanicus.draft import (
     accept_draft,
     draft_exchange,
@@ -100,6 +111,23 @@ def _help_entries():
             yield command, blurb
 
 
+def _slash_commands():
+    commands = set()
+    for command, _blurb in _help_entries():
+        commands.add(command.split()[0])
+    return sorted(commands)
+
+
+def _make_prompt_session():
+    history_path = app_dir() / "repl_history"
+    completer = WordCompleter(_slash_commands(), ignore_case=False, sentence=True)
+    return PromptSession(
+        history=FileHistory(str(history_path)),
+        completer=completer,
+        complete_while_typing=False,
+    )
+
+
 def print_help():
     print("Commands:")
     width = max(len(command) for command, _blurb in _help_entries())
@@ -109,6 +137,11 @@ def print_help():
         print(group)
         for command, blurb in entries:
             print(f"  {command:<{width}}  {blurb}")
+    print()
+    print(
+        "Line editing uses prompt_toolkit. "
+        "Up/Down recall history. Tab completes slash commands."
+    )
 
 
 def repl():
@@ -116,6 +149,7 @@ def repl():
     ensure_app_files()
     init_db()
     log_path = start_session_log()
+    prompt = _make_prompt_session()
     draft = None
     try:
         print("Seed REPL.")
@@ -123,7 +157,7 @@ def repl():
         print_startup_hints(root)
         while True:
             try:
-                line = input(draft_prompt(draft)).strip()
+                line = prompt.prompt(draft_prompt(draft)).strip()
             except (EOFError, KeyboardInterrupt):
                 break
             if not line:

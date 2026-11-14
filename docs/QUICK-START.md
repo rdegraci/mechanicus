@@ -30,7 +30,7 @@ The first start creates that file. Mechanicus does not replace it after that.
 1. Go to the project directory.
 2. Start Mechanicus: `.venv/bin/python -m mechanicus`.
 
-Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its own database.
+Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its own database. The REPL uses prompt_toolkit: Up/Down for history, Tab for slash-command completion.
 
 ## Make one specification
 

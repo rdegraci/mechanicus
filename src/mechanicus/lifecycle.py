@@ -18,6 +18,7 @@ from mechanicus.config import configured_repair_attempts, log, startup_dir
 from mechanicus.harness import (
     _failure_text,
     classify_before_code_with_reason,
+    real_deps_exercised,
     run_tests,
     sniff_test_sources,
     tests_for_disk,
@@ -333,6 +334,21 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                 )
                 log.info("generation %s does not call %s", code["generation"], ", ".join(unused))
                 print(output)
+        if passed and required:
+            exercised, probe_detail = real_deps_exercised(
+                code["content"], tests["content"], check["content"], modules, required
+            )
+            if not exercised:
+                log.info("adopt refused: fake dependency path for %s", name)
+                print(probe_detail)
+                _note_adopt(
+                    name,
+                    "failed",
+                    "fake_deps",
+                    probe_detail,
+                    code["generation"],
+                )
+                return
         if passed:
             if not allow_longer:
                 blocked = longer_than_adopted(spec["id"], code)

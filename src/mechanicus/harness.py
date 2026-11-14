@@ -295,7 +295,199 @@ def _write_dependency_modules(tmp, modules):
         destination.write_text(text)
 
 
-def run_tests(code: str, tests: str, check: str, modules=None) -> tuple[bool, str]:
+_PROBE_STUB = '''\
+"""Probe stub: import succeeds; any attribute use fails until replaced."""
+
+def __getattr__(name):
+    raise RuntimeError(
+        f"mechanicus probe stub: real adopted dependency required ({name})"
+    )
+'''
+
+_FAKE_DEPS_DETAIL = (
+    "Tests passed without exercising real adopted dependencies. "
+    "Do not monkeypatch or invent neighbor APIs; call the real "
+    "adopted modules written into the harness."
+)
+
+
+def _probe_stub_modules(modules):
+    """Replace adopted sources with call-failing stubs for a real-deps probe."""
+    stubs = []
+    for name, _content in modules or []:
+        stubs.append((name, _PROBE_STUB))
+    return stubs
+
+
+def _required_import_names(required):
+    names = set()
+    for spec_name in required or []:
+        imported = module_import(spec_name) or spec_name
+        names.add(imported)
+        names.add(imported.split(".", 1)[0])
+    return names
+
+
+def _alias_map(tree):
+    """Map local names to imported module roots (e.g. lib, or alias → lib)."""
+    aliases = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".", 1)[0]
+                aliases[local] = alias.name.split(".", 1)[0]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            root = node.module.split(".", 1)[0]
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                local = alias.asname or alias.name
+                aliases[local] = root
+    return aliases
+
+
+def _call_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parts = []
+        current = node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+            parts.reverse()
+            return ".".join(parts)
+    return None
+
+
+def _targets_required(value, aliases, required_roots):
+    if isinstance(value, ast.Name):
+        root = aliases.get(value.id, value.id)
+        return root in required_roots or value.id in required_roots
+    if isinstance(value, ast.Attribute):
+        current = value
+        while isinstance(current, ast.Attribute):
+            current = current.value
+        if isinstance(current, ast.Name):
+            root = aliases.get(current.id, current.id)
+            return root in required_roots
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        text = value.value
+        root = text.split(".", 1)[0]
+        return root in required_roots or any(
+            text == name or text.startswith(name + ".") for name in required_roots
+        )
+    return False
+
+
+def _patches_required_deps(source, required_roots):
+    """True when tests monkeypatch/mock a required adopted dependency."""
+    if not required_roots or not str(source or "").strip():
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    aliases = _alias_map(tree)
+    aliases.setdefault("impl", "impl")
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_name(node.func)
+        if name is None:
+            continue
+        short = name.rsplit(".", 1)[-1]
+        if short not in {"setattr", "patch", "patch.object"} and name not in {
+            "setattr",
+            "patch",
+            "unittest.mock.patch",
+            "mock.patch",
+            "monkeypatch.setattr",
+        }:
+            if not (
+                short == "setattr"
+                or name.endswith(".setattr")
+                or name.endswith(".patch")
+                or name.endswith(".patch.object")
+            ):
+                continue
+        if not node.args:
+            continue
+        target = node.args[0]
+        # monkeypatch.setattr(lib, "compute", ...) or patch("lib.compute")
+        if _targets_required(target, aliases, required_roots):
+            return True
+        # monkeypatch.setattr("lib.compute", ...)
+        if (
+            len(node.args) >= 1
+            and isinstance(target, ast.Constant)
+            and isinstance(target.value, str)
+            and _targets_required(target, aliases, required_roots)
+        ):
+            return True
+    return False
+
+
+def sniff_fake_dependency_tests(tests, check, required):
+    """Return a reason when tests replace required dependency APIs, else None."""
+    roots = _required_import_names(required)
+    if not roots:
+        return None
+    for source in (tests, check):
+        if _patches_required_deps(source, roots):
+            return "patched_deps"
+        # Invented helpers on impl (setattr with raising=False, or plain assign).
+        if _invents_impl_helpers(source):
+            return "invented_impl"
+    return None
+
+
+def _invents_impl_helpers(source):
+    if not str(source or "").strip():
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    aliases = _alias_map(tree)
+    impl_names = {local for local, root in aliases.items() if root == "impl"}
+    impl_names.add("impl")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = _call_name(node.func)
+            if name is None:
+                continue
+            if not (name == "setattr" or name.endswith(".setattr")):
+                continue
+            if not node.args:
+                continue
+            target = node.args[0]
+            if isinstance(target, ast.Name) and target.id in impl_names:
+                # raising=False invents attributes; default raising also replaces.
+                return True
+            if (
+                isinstance(target, ast.Constant)
+                and isinstance(target.value, str)
+                and (
+                    target.value == "impl"
+                    or target.value.startswith("impl.")
+                )
+            ):
+                return True
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id in impl_names
+                ):
+                    return True
+    return False
+
+
+def _run_pytest_harness(code: str, tests: str, check: str, modules=None) -> tuple[bool, str]:
     with tempfile.TemporaryDirectory() as tmp:
         _write_dependency_modules(tmp, modules)
         with open(os.path.join(tmp, "impl.py"), "w") as handle:
@@ -317,6 +509,30 @@ def run_tests(code: str, tests: str, check: str, modules=None) -> tuple[bool, st
         if result.stderr:
             output = f"{output}\n{result.stderr}" if output else result.stderr
         return result.returncode == 0, output
+
+
+def run_tests(code: str, tests: str, check: str, modules=None) -> tuple[bool, str]:
+    return _run_pytest_harness(code, tests, check, modules)
+
+
+def real_deps_exercised(code: str, tests: str, check: str, modules, required) -> tuple[bool, str]:
+    """Return whether tests need the real adopted dependency sources.
+
+    Refuses when tests monkeypatch or invent dependency APIs, or when the suite
+    still passes against stub dependencies that fail on use.
+    """
+    if not required:
+        return True, ""
+    fake = sniff_fake_dependency_tests(tests, check, required)
+    if fake is not None:
+        return False, _FAKE_DEPS_DETAIL
+    stubs = _probe_stub_modules(modules)
+    if not stubs:
+        stubs = [(name, _PROBE_STUB) for name in required]
+    passed, output = _run_pytest_harness(code, tests, check, stubs)
+    if passed:
+        return False, _FAKE_DEPS_DETAIL
+    return True, output
 
 def tests_for_disk(tests, name):
     text = prepare_tests(tests)

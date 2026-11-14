@@ -3,6 +3,7 @@ import os
 import re
 from pathlib import Path
 
+from mechanicus.activity import activity_spinner
 from mechanicus.codegen import (
     add_missing_modules,
     list_behaviors,
@@ -951,33 +952,34 @@ def _build_one_module(root, name):
 
 
 def build_command(root, name=None):
-    if name is not None:
-        _build_one_module(root, name)
-        return
-    log.info("build")
-    root = Path(root).resolve()
-    records = module_records(root)
-    if not records:
-        log.info("build found no module files")
-        print("No module files.")
-        return
-    print_module_statuses(module_statuses(root), heading="--- modules before build ---")
-    if separate_cycles(root, records):
+    with activity_spinner("Building"):
+        if name is not None:
+            _build_one_module(root, name)
+            return
+        log.info("build")
+        root = Path(root).resolve()
         records = module_records(root)
+        if not records:
+            log.info("build found no module files")
+            print("No module files.")
+            return
+        print_module_statuses(module_statuses(root), heading="--- modules before build ---")
+        if separate_cycles(root, records):
+            records = module_records(root)
+            print_module_statuses(
+                module_statuses(root),
+                heading="--- modules after cycle repair ---",
+            )
+        order, skipped = arrange_modules(records)
+        for message in skipped:
+            log.info("build %s", message)
+            print(message)
+        outcomes = {}
+        for record in order:
+            status, reason = build_one(root, record)
+            outcomes[record["name"]] = (status, reason)
+            log.info("build %s -> %s (%s)", record["name"], status, reason)
         print_module_statuses(
-            module_statuses(root),
-            heading="--- modules after cycle repair ---",
+            module_statuses(root, outcomes=outcomes),
+            heading="--- modules after build ---",
         )
-    order, skipped = arrange_modules(records)
-    for message in skipped:
-        log.info("build %s", message)
-        print(message)
-    outcomes = {}
-    for record in order:
-        status, reason = build_one(root, record)
-        outcomes[record["name"]] = (status, reason)
-        log.info("build %s -> %s (%s)", record["name"], status, reason)
-    print_module_statuses(
-        module_statuses(root, outcomes=outcomes),
-        heading="--- modules after build ---",
-    )

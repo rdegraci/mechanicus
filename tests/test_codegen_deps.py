@@ -92,7 +92,7 @@ def test_repair_tests_without_deps_stays_impl_only(monkeypatch):
 def test_tests_until_red_forwards_adopted_deps(monkeypatch):
     seen = {}
 
-    def fake_generate(behavior, modules=None, required=None):
+    def fake_generate(behavior, modules=None, required=None, name=None):
         seen["modules"] = modules
         seen["required"] = required
         return _sample_result()
@@ -121,10 +121,10 @@ def test_tests_until_red_uses_repair_forwards_deps(monkeypatch):
     repairs = []
     calls = {"jev": 0}
 
-    def fake_generate(behavior, modules=None, required=None):
+    def fake_generate(behavior, modules=None, required=None, name=None):
         return _sample_result()
 
-    def fake_repair(behavior, tests, check, output, kind, modules=None, required=None):
+    def fake_repair(behavior, tests, check, output, kind, modules=None, required=None, name=None):
         repairs.append(
             {
                 "kind": kind,

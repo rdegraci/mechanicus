@@ -11,6 +11,7 @@ from mechanicus.repl import (
 def test_command_help_includes_help_and_build():
     commands = {command for command, _blurb in _help_entries()}
     assert "/help" in commands
+    assert "/target [python|swift-package] [Name]" in commands
     assert "/build" in commands
     assert "/build <name>" in commands
     groups = [group for group, _entries in _COMMAND_HELP]

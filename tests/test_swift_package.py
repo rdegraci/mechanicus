@@ -1,0 +1,169 @@
+"""Swift package target, paths, scaffold, and harness helpers."""
+import pytest
+
+from mechanicus.lifecycle import target_command
+from mechanicus.paths import adopted_output_path, layout_conflict
+from mechanicus.paths import test_output_path as disk_test_path
+from mechanicus.project import (
+    TARGET_PYTHON,
+    TARGET_SWIFT_PACKAGE,
+    is_swift_package,
+    load_project,
+    project_package_name,
+    save_project,
+)
+from mechanicus.swift_support import (
+    classify_swift_before_code,
+    empty_stub,
+    ensure_package_scaffold,
+    run_swift_tests,
+    sniff_swift_test_sources,
+    swift_check_path,
+    swift_toolchain_available,
+    swift_type_name,
+    write_swift_artifacts,
+)
+
+
+def test_default_project_is_python(project):
+    settings = load_project(project)
+    assert settings["target"] == TARGET_PYTHON
+    assert not is_swift_package(project)
+    assert adopted_output_path(project, "greet") == (project / "greet.py").resolve()
+
+
+def test_save_and_load_swift_package_target(project):
+    settings = save_project(project, TARGET_SWIFT_PACKAGE, package_name="AppLogic")
+    assert settings["target"] == TARGET_SWIFT_PACKAGE
+    assert settings["package_name"] == "AppLogic"
+    assert settings["package_root"] == "AppLogic"
+    loaded = load_project(project)
+    assert loaded == settings
+    assert is_swift_package(project)
+    assert project_package_name(project) == "AppLogic"
+
+
+def test_swift_type_name_mapping():
+    assert swift_type_name("score_calculator") == "ScoreCalculator"
+    assert swift_type_name("greeter") == "Greeter"
+    assert swift_type_name("path/to_name") == "PathToName"
+
+
+def test_target_command_scaffolds_package(project):
+    settings = target_command(project, "swift-package", "DemoKit")
+    assert settings["package_name"] == "DemoKit"
+    package = project / "DemoKit"
+    assert (package / "Package.swift").is_file()
+    assert (package / "Sources" / "DemoKit").is_dir()
+    assert (package / "Tests" / "DemoKitTests").is_dir()
+    text = (package / "Package.swift").read_text()
+    assert 'name: "DemoKit"' in text
+    # Second call leaves manifest in place.
+    (package / "Package.swift").write_text(text + "// kept\n")
+    target_command(project, "swift-package", "DemoKit")
+    assert "// kept" in (package / "Package.swift").read_text()
+
+
+def test_swift_output_paths(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="MyAppLogic")
+    ensure_package_scaffold(project)
+    assert adopted_output_path(project, "score_calculator") == (
+        project / "MyAppLogic" / "Sources" / "MyAppLogic" / "ScoreCalculator.swift"
+    ).resolve()
+    assert disk_test_path(project, "score_calculator") == (
+        project
+        / "MyAppLogic"
+        / "Tests"
+        / "MyAppLogicTests"
+        / "ScoreCalculatorTests.swift"
+    ).resolve()
+    assert swift_check_path(project, "score_calculator") == (
+        project
+        / "MyAppLogic"
+        / "Tests"
+        / "MyAppLogicTests"
+        / "ScoreCalculatorCheckTests.swift"
+    ).resolve()
+
+
+def test_swift_layout_conflict_reserved(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="MyAppLogic")
+    message = layout_conflict(project, "Sources")
+    assert message is not None
+    assert "Sources" in message
+    assert layout_conflict(project, "score_calculator") is None
+
+
+def test_sniff_and_classify_swift(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="MyAppLogic")
+    weak = "import XCTest\n@testable import MyAppLogic\n"
+    assert sniff_swift_test_sources(weak, weak, project, "greeter") is not None
+    tests = """
+import XCTest
+@testable import MyAppLogic
+final class GreeterTests: XCTestCase {
+    func testHello() {
+        XCTAssertEqual(Greeter.hello(), "hello")
+    }
+}
+"""
+    check = """
+import XCTest
+@testable import MyAppLogic
+final class GreeterCheckTests: XCTestCase {
+    func testBehavior() {
+        XCTAssertEqual(Greeter.hello(), "hello")
+    }
+}
+"""
+    assert sniff_swift_test_sources(tests, check, project, "greeter") is None
+    assert classify_swift_before_code(True, "ok") == ("pass", "passed")
+    kind, reason = classify_swift_before_code(False, "error: missing hello\nXCTAssertEqual failed")
+    assert kind == "red"
+
+
+@pytest.mark.skipif(not swift_toolchain_available(), reason="swift toolchain not installed")
+def test_swift_test_red_then_green(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="MyAppLogic")
+    ensure_package_scaffold(project)
+    tests = """
+import XCTest
+@testable import MyAppLogic
+final class GreeterTests: XCTestCase {
+    func testHello() {
+        XCTAssertEqual(Greeter.hello(), "hello")
+    }
+}
+"""
+    check = """
+import XCTest
+@testable import MyAppLogic
+final class GreeterCheckTests: XCTestCase {
+    func testBehavior() {
+        XCTAssertEqual(Greeter.hello(), "hello")
+    }
+}
+"""
+    write_swift_artifacts(project, "greeter", empty_stub(project, "greeter"), tests, check)
+    passed, output = run_swift_tests(project, "greeter")
+    assert not passed
+    kind, _reason = classify_swift_before_code(passed, output)
+    assert kind == "red"
+
+    code = """
+public struct Greeter {
+    public static func hello() -> String { "hello" }
+}
+"""
+    write_swift_artifacts(project, "greeter", code, tests, check)
+    passed, output = run_swift_tests(project, "greeter")
+    assert passed, output
+
+
+def test_python_paths_unchanged_without_project_yaml(project):
+    assert load_project(project)["target"] == TARGET_PYTHON
+    path = adopted_output_path(project, "cli/main")
+    assert path == (project / "cli" / "main.py").resolve()
+    assert disk_test_path(project, "cli/main") == (
+        project / "tests" / "cli" / "test_cli_main.py"
+    ).resolve()

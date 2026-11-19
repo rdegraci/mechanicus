@@ -16,6 +16,14 @@ The application directory is `~/Library/Application Support/mechanicus`. The fir
 
 Each start writes a new file in `~/Library/Application Support/mechanicus/logs`. `/logfile` prints that path. Mechanicus prints the path again when it exits.
 
+## Project target
+
+The language target is per project in `.mechanicus/project.yaml`. When that file is missing, Mechanicus uses Python.
+
+Enter `/target swift-package MyAppLogic` to select a Swift package. Mechanicus writes `project.yaml` and scaffolds `MyAppLogic/Package.swift` once (it does not overwrite an existing manifest). Specs still use `.module` files beside `Package.swift`. Adopted logic lands under `Sources/MyAppLogic/` and XCTest under `Tests/MyAppLogicTests/`. `/build` and `/adopt` run `swift test` in that package in place. Enter `/target python` to return to Python.
+
+Swift v1 is pure logic only (no SwiftUI). Link the local package from an Xcode app separately. Cross-module `uses:` call-graph proofs from the Python path are not enforced for Swift yet; compile and XCTest green are the adopt gate.
+
 ## Start
 
 1. Go to the project directory.
@@ -38,6 +46,9 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/accept` | Saves the draft, leaves drafting, and runs `/plan`. |
 | `/abort` | Leaves drafting without saving a new description and without `/plan`. |
 | `/spec <name> <behavior>` | Stores the behavior, writes failing tests, then requests code. |
+| `/target` | Shows the project target (`python` or `swift-package`). |
+| `/target python` | Sets the project to Python (default when `.mechanicus/project.yaml` is missing). |
+| `/target swift-package [Name]` | Sets a Swift package target and scaffolds `Package.swift` once. |
 | `/plan [description]` | Writes one `.module` file for each recommended module. |
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/add <n>` | Runs `/add` with suggestion number `n` when `.module` files exist. |
@@ -55,9 +66,9 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/revert <name> <generation> --db-only` | Adopts an earlier generation without writing disk. |
 | `/generate` | Writes every adopted specification and its tests. |
 | `/generate <name>` | Writes that adopted specification and its tests. |
-| `/test` | Runs on-disk pytest with `PYTHONPATH` set to the startup directory. |
+| `/test` | Runs on-disk pytest, or `swift test` when the project target is `swift-package`. |
 | `/test <name>` | Runs the on-disk tests for that specification. |
-| `/run <name>` | Loads the adopted code and calls `main` when it exists. |
+| `/run <name>` | Loads the adopted Python code and calls `main` when it exists. Not used for Swift packages. |
 | `/logfile` | Prints the path of the session log file. |
 | `/help` | Lists commands and a short description of each. |
 | `/quit` | Stops Mechanicus. |

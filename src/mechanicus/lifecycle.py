@@ -31,6 +31,13 @@ from mechanicus.jev import (
     weak_call_tests,
 )
 from mechanicus.paths import adopted_output_path, layout_conflict, test_output_path, write_text_file
+from mechanicus.project import (
+    TARGET_PYTHON,
+    TARGET_SWIFT_PACKAGE,
+    is_swift_package,
+    load_project,
+    save_project,
+)
 from mechanicus.store import (
     generation_numbers,
     get_adopted_artifact,
@@ -45,6 +52,20 @@ from mechanicus.store import (
     record_deps_fingerprint,
     record_jev_result,
     save_generation,
+)
+from mechanicus.swift_support import (
+    check_for_disk_swift,
+    classify_swift_before_code,
+    empty_stub,
+    ensure_package_scaffold,
+    read_swift_artifacts,
+    restore_swift_artifacts,
+    run_swift_tests,
+    sniff_swift_test_sources,
+    swift_check_path,
+    swift_toolchain_available,
+    tests_for_disk_swift,
+    write_swift_artifacts,
 )
 
 
@@ -76,6 +97,10 @@ def load_adopted(name):
 
 def run_adopted(name):
     log.info("run %s", name)
+    if is_swift_package(startup_dir()):
+        log.info("run refused: swift package")
+        print("Swift packages are not run with /run. Use the iOS app or /test.")
+        return
     if get_spec(name) is None:
         log.info("run refused: spec not found")
         print("Spec not found.")
@@ -147,9 +172,21 @@ def disk_sync_status(root, name):
         test_destination = test_output_path(root, name)
         if test_destination is None or not test_destination.is_file():
             return "differ"
-        expected = _normalize_text(tests_for_disk(tests["content"], name))
+        if is_swift_package(root):
+            expected = _normalize_text(tests_for_disk_swift(tests["content"], root))
+        else:
+            expected = _normalize_text(tests_for_disk(tests["content"], name))
         if test_destination.read_text() != expected:
             return "differ"
+    if is_swift_package(root):
+        check = get_adopted_artifact(spec["id"], "check")
+        check_destination = swift_check_path(root, name)
+        if check is not None and str(check["content"]).strip():
+            if check_destination is None or not check_destination.is_file():
+                return "differ"
+            expected_check = _normalize_text(check_for_disk_swift(check["content"], root))
+            if check_destination.read_text() != expected_check:
+                return "differ"
     return "ok"
 
 
@@ -318,37 +355,85 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
     repairs_left = 0 if spec["pinned"] else configured_repair_attempts()
     repair_limit = repairs_left
     repair_number = 0
+    root = startup_dir()
+    swift = is_swift_package(root)
+
+    def _restore_swift_adopted():
+        if not swift:
+            return
+        adopted_code = get_adopted_artifact(spec["id"], "code")
+        if adopted_code is not None and str(adopted_code["content"]).strip():
+            adopted_tests = get_adopted_artifact(spec["id"], "tests")
+            adopted_check = get_adopted_artifact(spec["id"], "check")
+            write_swift_artifacts(
+                root,
+                name,
+                adopted_code["content"],
+                adopted_tests["content"] if adopted_tests is not None else "",
+                adopted_check["content"] if adopted_check is not None else "",
+            )
+            return
+        restore_swift_artifacts(
+            root,
+            name,
+            {"code": empty_stub(root, name), "tests": None, "check": None},
+        )
+
     while True:
         print("Running tests...")
         log.info("running tests for generation %s", code["generation"])
-        passed, output = run_tests(code["content"], tests["content"], check["content"], modules)
-        pytest_passed = passed
-        if passed:
-            unused = uncalled_modules(code["content"], required)
-            if unused:
-                passed = False
-                output = (
-                    "The code does not call these adopted modules: "
-                    + ", ".join(unused)
-                    + ".\nImport each module and call it while performing the behavior."
-                )
-                log.info("generation %s does not call %s", code["generation"], ", ".join(unused))
-                print(output)
-        if passed and required:
-            exercised, probe_detail = real_deps_exercised(
-                code["content"], tests["content"], check["content"], modules, required
-            )
-            if not exercised:
-                log.info("adopt refused: fake dependency path for %s", name)
-                print(probe_detail)
+        if swift:
+            if not swift_toolchain_available():
+                print("swift is not available on PATH. Not adopted.")
                 _note_adopt(
                     name,
                     "failed",
-                    "fake_deps",
-                    probe_detail,
+                    "no_swift",
+                    "swift is not available on PATH.",
                     code["generation"],
                 )
+                _restore_swift_adopted()
                 return
+            write_swift_artifacts(
+                root, name, code["content"], tests["content"], check["content"]
+            )
+            passed, output = run_swift_tests(root, name)
+            pytest_passed = passed
+        else:
+            passed, output = run_tests(
+                code["content"], tests["content"], check["content"], modules
+            )
+            pytest_passed = passed
+            if passed:
+                unused = uncalled_modules(code["content"], required)
+                if unused:
+                    passed = False
+                    output = (
+                        "The code does not call these adopted modules: "
+                        + ", ".join(unused)
+                        + ".\nImport each module and call it while performing the behavior."
+                    )
+                    log.info(
+                        "generation %s does not call %s",
+                        code["generation"],
+                        ", ".join(unused),
+                    )
+                    print(output)
+            if passed and required:
+                exercised, probe_detail = real_deps_exercised(
+                    code["content"], tests["content"], check["content"], modules, required
+                )
+                if not exercised:
+                    log.info("adopt refused: fake dependency path for %s", name)
+                    print(probe_detail)
+                    _note_adopt(
+                        name,
+                        "failed",
+                        "fake_deps",
+                        probe_detail,
+                        code["generation"],
+                    )
+                    return
         if passed:
             if not allow_longer:
                 blocked = longer_than_adopted(spec["id"], code)
@@ -367,6 +452,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                     )
                     print(f"Refused. {detail}")
                     _note_adopt(name, "failed", "longer", detail, code["generation"])
+                    _restore_swift_adopted()
                     return
             mark_adopted(spec["id"], code["generation"])
             record_deps_fingerprint(name, required)
@@ -376,7 +462,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             return
         if not pytest_passed:
             log.info("tests failed for generation %s", code["generation"])
-        log.info("pytest output:\n%s", _failure_text(output))
+        log.info("test output:\n%s", _failure_text(output))
         if repairs_left <= 0:
             if spec["pinned"]:
                 log.info("repair skipped: %s is pinned", name)
@@ -398,6 +484,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                     "Tests failed. Not adopted.",
                     code["generation"],
                 )
+            _restore_swift_adopted()
             return
         repair_number += 1
         repairs_left -= 1
@@ -413,6 +500,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                 modules,
                 required,
                 pytest_passed,
+                name=name,
             )
             spec_id, generation = save_generation(
                 name, behavior, result.code, tests["content"], check["content"]
@@ -428,6 +516,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
                 f"Repair failed: {error}",
                 code["generation"],
             )
+            _restore_swift_adopted()
             return
         code = get_generation_artifact(spec_id, generation, "code")
         tests = get_generation_artifact(spec_id, generation, "tests")
@@ -486,6 +575,7 @@ def refactor_command(name):
             check["content"],
             modules,
             required,
+            name=name,
         )
     except Exception as error:
         log.exception("refactor failed for %s", name)
@@ -564,6 +654,29 @@ def write_adopted(root, name):
         log.info("generate refused: no adopted code")
         print(f"No adopted code for '{name}'.")
         return False
+    root = Path(root).resolve()
+    if is_swift_package(root):
+        ensure_package_scaffold(root)
+        tests = get_adopted_artifact(spec["id"], "tests")
+        check = get_adopted_artifact(spec["id"], "check")
+        written = write_swift_artifacts(
+            root,
+            name,
+            code["content"],
+            tests["content"] if tests is not None else "",
+            check["content"] if check is not None else "",
+        )
+        if written is None:
+            print(f"'{name}' is not a path inside the Swift package.")
+            return False
+        for path in written:
+            if path is not None and path.is_file():
+                log.info("wrote %s", path)
+                print(path.relative_to(root).as_posix())
+        if tests is None or not str(tests["content"]).strip():
+            log.info("no adopted tests for %s", name)
+            print(f"No adopted tests for '{name}'.")
+        return True
     destination = adopted_output_path(root, name)
     if destination is None:
         print(f"'{name}' is not a path inside the startup directory.")
@@ -604,9 +717,37 @@ def generate_command(root, name=None):
 
 
 def test_command(root, name=None):
-    """Run on-disk pytest with PYTHONPATH set to the startup directory."""
+    """Run on-disk pytest or swift test for the project target."""
     root = Path(root).resolve()
     log.info("test %s", name or "(all)")
+    if is_swift_package(root):
+        if not swift_toolchain_available():
+            print("swift is not available on PATH.")
+            return False
+        ensure_package_scaffold(root)
+        if name is None:
+            print("Running swift test...")
+            passed, output = run_swift_tests(root, None)
+        else:
+            destination = test_output_path(root, name)
+            if destination is None:
+                print(f"'{name}' is not a path inside the Swift package.")
+                return False
+            if not destination.is_file():
+                print(
+                    f"No test file for '{name}'. "
+                    f"Expected {destination.relative_to(root).as_posix()}."
+                )
+                return False
+            print(f"Running swift test for {name}...")
+            passed, output = run_swift_tests(root, name)
+        if output:
+            print(output, end="" if output.endswith("\n") else "\n")
+        if passed:
+            print("Tests passed.")
+            return True
+        print("Tests failed.")
+        return False
     if name is None:
         tests_dir = root / "tests"
         if not tests_dir.is_dir():
@@ -683,11 +824,14 @@ def _persist_last_jev(name):
     return recorded
 
 
-def tests_until_red(behavior, modules=None, required=None):
+def tests_until_red(behavior, modules=None, required=None, name=None):
     """Write tests that fail against an empty module. Return None when they do not."""
     required = list(required or [])
     clear_last_jev()
-    result = generate_tests(behavior, modules, required)
+    root = startup_dir()
+    swift = is_swift_package(root)
+    prior_disk = read_swift_artifacts(root, name) if swift and name else None
+    result = generate_tests(behavior, modules, required, name=name)
     repairs_left = configured_repair_attempts()
     repair_limit = repairs_left
     repair_number = 0
@@ -703,6 +847,31 @@ def tests_until_red(behavior, modules=None, required=None):
             kind = "broken"
             reason = "empty"
             log.info("tests are empty before the implementation")
+        elif swift:
+            sniff = sniff_swift_test_sources(tests, check, root, name or "")
+            if sniff is not None:
+                passed = False
+                output = f"Tests are too weak to prove the behavior is missing ({sniff})."
+                kind = "broken"
+                reason = sniff
+                log.info("swift tests sniffed before the implementation: %s", sniff)
+                print(f"Tests are not red ({sniff}).")
+            else:
+                if not swift_toolchain_available():
+                    log.info("tests refused: no swift")
+                    print("swift is not available on PATH. Not saved.")
+                    restore_swift_artifacts(root, name, prior_disk)
+                    return None
+                print("Running tests...")
+                write_swift_artifacts(
+                    root, name, empty_stub(root, name), tests, check
+                )
+                passed, output = run_swift_tests(root, name)
+                kind, reason = classify_swift_before_code(passed, output)
+                log.info("tests before the implementation: %s (%s)", kind, reason)
+                log.info("swift test output:\n%s", _failure_text(output))
+                if kind != "red":
+                    print(f"Tests are not red ({reason}).")
         else:
             sniff = sniff_test_sources(tests, check)
             if sniff is not None:
@@ -720,7 +889,7 @@ def tests_until_red(behavior, modules=None, required=None):
                 log.info("pytest output:\n%s", _failure_text(output))
                 if kind != "red":
                     print(f"Tests are not red ({reason}).")
-        if kind == "red" and required and not jev_checked:
+        if kind == "red" and required and not jev_checked and not swift:
             jev_checked = True
             try:
                 weak = weak_call_tests(behavior, tests, check, required)
@@ -730,18 +899,23 @@ def tests_until_red(behavior, modules=None, required=None):
                 note_jev_result("failed", "error", str(error), gate="tests")
                 weak = []
             if weak:
-                details = ", ".join(f"{name} ({probability:.2f})" for name, probability in weak)
+                details = ", ".join(
+                    f"{dep} ({probability:.2f})" for dep, probability in weak
+                )
                 print(f"Tests do not require these calls: {details}.")
                 output = (
                     "These tests do not fail when the implementation never calls: "
-                    + ", ".join(name for name, _probability in weak)
+                    + ", ".join(dep for dep, _probability in weak)
                     + "."
                 )
                 print("Repairing tests for the missing calls...")
-                log.info("repair tests for calls %s", ", ".join(name for name, _probability in weak))
+                log.info(
+                    "repair tests for calls %s",
+                    ", ".join(dep for dep, _probability in weak),
+                )
                 try:
                     result = repair_tests(
-                        behavior, tests, check, output, "uses", modules, required
+                        behavior, tests, check, output, "uses", modules, required, name=name
                     )
                 except Exception as error:
                     log.exception("repair tests for calls failed")
@@ -756,6 +930,8 @@ def tests_until_red(behavior, modules=None, required=None):
             return tests, check
         if repairs_left <= 0:
             log.info("tests did not fail for the behavior")
+            if swift:
+                restore_swift_artifacts(root, name, prior_disk)
             return None
         repair_number += 1
         repairs_left -= 1
@@ -764,8 +940,44 @@ def tests_until_red(behavior, modules=None, required=None):
         if reason and reason not in str(output):
             output = f"{reason}\n{output}"
         result = repair_tests(
-            behavior, tests, check, output, kind, modules, required
+            behavior, tests, check, output, kind, modules, required, name=name
         )
+
+
+def target_command(root, target=None, package_name=""):
+    """Show or set the per-project build target."""
+    root = Path(root).resolve()
+    if target is None:
+        settings = load_project(root)
+        print(f"target: {settings['target']}")
+        if settings["target"] == TARGET_SWIFT_PACKAGE:
+            print(f"package_name: {settings['package_name']}")
+            print(f"package_root: {settings['package_root']}")
+        return settings
+    target = str(target).strip().lower()
+    if target not in (TARGET_PYTHON, TARGET_SWIFT_PACKAGE):
+        print(f"Unknown target '{target}'. Use python or swift-package.")
+        return None
+    try:
+        settings = save_project(root, target, package_name=package_name)
+    except ValueError as error:
+        print(f"Error: {error}")
+        return None
+    print(f"target: {settings['target']}")
+    if settings["target"] == TARGET_SWIFT_PACKAGE:
+        print(f"package_name: {settings['package_name']}")
+        print(f"package_root: {settings['package_root']}")
+        scaffold = ensure_package_scaffold(root)
+        relative = scaffold["manifest"].relative_to(root).as_posix()
+        if scaffold["created_manifest"]:
+            print(f"Created {relative}")
+        else:
+            print(f"Left {relative} in place.")
+        print(
+            f"Sources: {scaffold['sources'].relative_to(root).as_posix()}/  "
+            f"Tests: {scaffold['tests'].relative_to(root).as_posix()}/"
+        )
+    return settings
 
 
 def spec_command(name, behavior, modules=None, record=None, required=None):
@@ -789,9 +1001,11 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         log.info("spec refused: %s is pinned", name)
         print(f"'{name}' is pinned. It cannot be regenerated or overwritten.")
         return
+    if is_swift_package(startup_dir()):
+        ensure_package_scaffold(startup_dir())
     print("Writing tests...")
     try:
-        written = tests_until_red(behavior, modules, required)
+        written = tests_until_red(behavior, modules, required, name=name)
     except Exception as error:
         log.exception("spec failed for %s", name)
         print(f"Error: {error}")
@@ -802,7 +1016,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
     tests, check = written
     print("Writing code...")
     try:
-        result = generate_code(behavior, tests, check, modules, required)
+        result = generate_code(behavior, tests, check, modules, required, name=name)
     except Exception as error:
         log.exception("code generation failed for %s", name)
         try:

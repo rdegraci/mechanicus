@@ -74,7 +74,7 @@ def test_spec_persists_jev_skipped(project, monkeypatch, capsys):
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.setattr(
         "mechanicus.lifecycle.generate_tests",
-        lambda behavior, modules=None, required=None: type(
+        lambda behavior, modules=None, required=None, name=None: type(
             "R",
             (),
             {
@@ -98,7 +98,7 @@ def test_spec_persists_jev_skipped(project, monkeypatch, capsys):
     )
     monkeypatch.setattr(
         "mechanicus.lifecycle.generate_code",
-        lambda behavior, tests, check, modules=None, required=None: type(
+        lambda behavior, tests, check, modules=None, required=None, name=None: type(
             "C",
             (),
             {"code": "def x():\n    return 1\n", "explanation": "code"},
@@ -118,7 +118,7 @@ def test_spec_persists_jev_failed(project, monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
     monkeypatch.setattr(
         "mechanicus.lifecycle.generate_tests",
-        lambda behavior, modules=None, required=None: type(
+        lambda behavior, modules=None, required=None, name=None: type(
             "R",
             (),
             {
@@ -146,7 +146,7 @@ def test_spec_persists_jev_failed(project, monkeypatch):
     monkeypatch.setattr("mechanicus.jev.ask_jev", _boom)
     monkeypatch.setattr(
         "mechanicus.lifecycle.generate_code",
-        lambda behavior, tests, check, modules=None, required=None: type(
+        lambda behavior, tests, check, modules=None, required=None, name=None: type(
             "C",
             (),
             {"code": "def x():\n    return 1\n", "explanation": "code"},

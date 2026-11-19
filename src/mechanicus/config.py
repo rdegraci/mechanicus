@@ -111,9 +111,17 @@ def configured_package_root():
 
 
 def code_root(root=None):
-    """Directory where adopted .py and .module files are written."""
+    """Directory where adopted code and .module files are written.
+
+    Per-project `.mechanicus/project.yaml` package_root wins when set
+    (Swift packages). Otherwise the global config.yaml package_root is used.
+    """
     base = Path(root).resolve() if root is not None else startup_dir()
-    package = configured_package_root()
+    from mechanicus.project import project_package_root
+
+    package = project_package_root(base)
+    if package is None:
+        package = configured_package_root()
     if not package:
         return base
     destination = (base / package).resolve()
@@ -154,6 +162,18 @@ def start_session_log():
     except ValueError:
         package = ""
     log.info("package root %s", package or "(startup directory)")
+    try:
+        from mechanicus.project import load_project
+
+        settings = load_project(startup_dir())
+        log.info(
+            "project target %s package_name %s package_root %s",
+            settings.get("target"),
+            settings.get("package_name") or "(none)",
+            settings.get("package_root") or "(none)",
+        )
+    except Exception:
+        log.exception("project settings unavailable")
     return path
 
 

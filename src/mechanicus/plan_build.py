@@ -31,7 +31,17 @@ from mechanicus.store import (
 )
 
 
-_SKIP_DIR_NAMES = {".mechanicus", ".git", ".venv", "venv", "__pycache__", ".pytest_cache"}
+_SKIP_DIR_NAMES = {
+    ".mechanicus",
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    "Sources",
+    "Tests",
+    ".build",
+}
 
 
 def spec_name_for_module(name):

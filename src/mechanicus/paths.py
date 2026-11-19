@@ -2,9 +2,14 @@
 from pathlib import Path
 
 from mechanicus.config import code_root
+from mechanicus.project import is_swift_package
 
 
 def adopted_output_path(root, name):
+    if is_swift_package(root):
+        from mechanicus.swift_support import swift_source_path
+
+        return swift_source_path(root, name)
     base = code_root(root)
     relative = Path(name)
     if relative.is_absolute() or any(part in ("", "..") for part in relative.parts):
@@ -25,6 +30,10 @@ def layout_conflict(root, name):
     Writing name.py conflicts when name/ already exists as a directory.
     Writing name/child.py conflicts when name.py already exists as a file.
     """
+    if is_swift_package(root):
+        from mechanicus.swift_support import swift_layout_conflict
+
+        return swift_layout_conflict(root, name)
     base = code_root(root)
     relative = Path(str(name))
     if relative.suffix.lower() in (".py", ".module"):
@@ -69,6 +78,10 @@ def module_import(name):
 
 
 def test_output_path(root, name):
+    if is_swift_package(root):
+        from mechanicus.swift_support import swift_test_path
+
+        return swift_test_path(root, name)
     code_path = adopted_output_path(root, name)
     if code_path is None:
         return None

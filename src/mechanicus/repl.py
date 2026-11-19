@@ -29,8 +29,10 @@ from mechanicus.lifecycle import (
     run_adopted,
     show_spec,
     spec_command,
+    target_command,
     test_command,
 )
+from mechanicus.project import load_project
 from mechanicus.plan_build import (
     add_command,
     build_command,
@@ -57,6 +59,7 @@ _COMMAND_HELP = (
     (
         "Plan and build",
         (
+            ("/target [python|swift-package] [Name]", "Show or set the project language target."),
             ("/plan [description]", "Write a .module file for each recommended module."),
             ("/add <feature|n>", "Add a feature to modules, or apply suggestion n."),
             ("/modules", "List .module files with build status and disk sync."),
@@ -82,8 +85,8 @@ _COMMAND_HELP = (
         (
             ("/import <name>", "Import package source as adopted and pinned."),
             ("/generate [name]", "Write adopted code and tests into the startup directory."),
-            ("/test [name]", "Run on-disk pytest with PYTHONPATH set to startup."),
-            ("/run <name>", "Run the adopted code for a spec."),
+            ("/test [name]", "Run on-disk pytest or swift test for the project target."),
+            ("/run <name>", "Run the adopted code for a Python spec."),
         ),
     ),
     (
@@ -154,6 +157,12 @@ def repl():
     try:
         print("Seed REPL.")
         print_help()
+        settings = load_project(root)
+        if settings["target"] != "python":
+            print(
+                f"Project target: {settings['target']} "
+                f"({settings.get('package_name') or settings.get('package_root')})"
+            )
         print_startup_hints(root)
         while True:
             try:
@@ -219,6 +228,11 @@ def repl():
                 print("Enter /greenfield or /brownfield first.")
             elif cmd == "/spec" and len(parts) == 3:
                 spec_command(parts[1], parts[2])
+            elif cmd == "/target" and len(parts) == 1:
+                target_command(root)
+            elif cmd == "/target" and len(parts) in (2, 3):
+                package = parts[2] if len(parts) == 3 else ""
+                target_command(root, parts[1], package)
             elif cmd == "/plan":
                 description = line.split(maxsplit=1)[1].strip() if " " in line else ""
                 if not description:

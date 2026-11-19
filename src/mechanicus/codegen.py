@@ -1,7 +1,7 @@
 """OpenAI generation for tests, code, plans, and repairs."""
 from openai import OpenAI
 
-from mechanicus.config import configured_model, configured_reasoning_effort, log
+from mechanicus.config import configured_model, configured_reasoning_effort, log, startup_dir
 from mechanicus.harness import _failure_text
 from mechanicus.jev import _plan_state
 from mechanicus.models import (
@@ -12,6 +12,8 @@ from mechanicus.models import (
     TestsResult,
 )
 from mechanicus.paths import module_import
+from mechanicus.project import is_swift_package, project_package_name
+from mechanicus.swift_support import swift_type_name
 
 
 _SHARED_INSTRUCTIONS = """You are the generator for a minimal specification-driven coding system.
@@ -32,6 +34,28 @@ tests and check must import that module with `import impl` or `from impl import 
 Do not start a subprocess to import the code.
 The check calls the functions in impl from the same process.
 """
+
+_SWIFT_SHARED_INSTRUCTIONS = """You are the generator for a minimal specification-driven coding system.
+
+Purpose of the system:
+- Users interact through a CLI REPL.
+- Behavioral specifications are stored in a SQLite database.
+- Tests and a behavioral check are written before the implementation.
+- The implementation is the shortest pure Swift that makes those XCTest suites pass.
+- Generated code, tests, and the behavioral check are saved back into SQLite.
+- Code is written into a local Swift package (Sources + Tests). No SwiftUI. No UIKit.
+- Self-modification is allowed only through the spec → regenerate → test → explicit adopt path.
+
+The package product name is given in the request.
+tests and check must `import XCTest` and `@testable import <PackageName>`.
+Mark public API `public` so an iOS app can import the package.
+Prefer structs, enums, and pure functions. Do not use SwiftUI or UIKit.
+"""
+
+
+def _swift_mode(root=None):
+    return is_swift_package(root if root is not None else startup_dir())
+
 
 def _test_instructions(modules=None, required=None) -> str:
     has_deps = bool(modules) or bool(required)
@@ -69,6 +93,34 @@ Output fields:
 """
 
 
+def _swift_test_instructions(package_name, type_name, modules=None, required=None) -> str:
+    has_deps = bool(modules) or bool(required)
+    if has_deps:
+        import_rule = (
+            "Dependency types live in the same Swift package target. "
+            "Call them by their public API from the adopted sources below. "
+            "Do not invent neighbor APIs.\n"
+        )
+    else:
+        import_rule = "Do not reference types outside this package and XCTest.\n"
+    return _SWIFT_SHARED_INSTRUCTIONS + f"""
+Package name: {package_name}
+Primary public type name: {type_name}
+Write XCTest unit tests and a higher-level XCTest behavioral check first.
+The implementation file for {type_name} is an empty stub (no real behavior).
+The tests and the check must fail because the behavior is not implemented yet.
+Do not write the implementation.
+Each of tests and check must be a complete XCTest source file:
+import XCTest
+@testable import {package_name}
+{import_rule}
+Output fields:
+- tests: XCTest unit tests for {type_name}
+- check: a higher-level XCTest behavioral check for {type_name}
+- explanation: one short paragraph
+"""
+
+
 _CODE_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
 The tests and the check are already written. They are fixed.
 Write the shortest possible working implementation (fewest lines) that makes them pass.
@@ -79,6 +131,21 @@ When the request lists no adopted modules, do not import another project module.
 
 Output fields:
 - code: the shortest working Python implementation
+- explanation: one short paragraph
+"""
+
+_SWIFT_CODE_INSTRUCTIONS = _SWIFT_SHARED_INSTRUCTIONS + """
+The tests and the check are already written. They are fixed.
+Write the shortest possible working Swift implementation (fewest lines) that makes them pass.
+Do not change the tests or the check.
+Use the primary public type name from the request.
+Mark public API public.
+Call each adopted dependency type the request names when uses: requires it.
+Do not reimplement a listed dependency.
+Do not use SwiftUI or UIKit.
+
+Output fields:
+- code: the shortest working Swift implementation (one source file)
 - explanation: one short paragraph
 """
 
@@ -99,6 +166,20 @@ Output fields:
 - explanation: one short paragraph
 """
 
+_SWIFT_REFACTOR_INSTRUCTIONS = _SWIFT_SHARED_INSTRUCTIONS + """
+The tests and the check are already written. They are fixed.
+Rewrite the Swift implementation so it is easier to read.
+Keep the same behavior. Do not add a feature. Do not remove a behavior.
+Keep the public names the tests already call.
+Prefer clear structure and names over the fewest lines.
+Do not change the tests or the check.
+Do not use SwiftUI or UIKit.
+
+Output fields:
+- code: the clearer working Swift implementation
+- explanation: one short paragraph
+"""
+
 _PLAN_INSTRUCTIONS = """You plan the modules of an application for a specification-driven coding system.
 
 Break the description into modules that form a clear architecture.
@@ -110,8 +191,9 @@ uses is empty when the module calls no other module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
 Do not use a top-level name that matches an existing package directory. Nest under that package instead.
 Do not use a child path under a name that already exists as a top-level .py module file.
+Do not use the top-level names Sources, Tests, or Package.
 The behavior is your recommendation for that module. Write one or more sentences the user can edit.
-Do not write Python.
+Do not write implementation code.
 
 Output fields:
 - modules: a list of name, behavior, and uses
@@ -202,10 +284,24 @@ def _request_generation(user_input: str, instructions: str, text_format):
     return response.output_parsed
 
 
-def _test_modules_prompt(modules, required=None) -> str:
+def _test_modules_prompt(modules, required=None, swift=False) -> str:
     """Prompt block for test generation when adopted uses: deps are present."""
     if not modules and not required:
         return ""
+    if swift:
+        names = [swift_type_name(name) or name for name in (required or [])]
+        lines = [
+            "These types are already adopted in the same Swift package target.",
+            "Use only their real APIs as written below. Do not invent neighbor APIs.",
+        ]
+        if names:
+            lines.append(
+                "Required types the implementation should use: " + ", ".join(names) + "."
+            )
+        for name, content in modules or []:
+            shown = swift_type_name(name) or name
+            lines.append(f"\nType {shown}:\n{str(content).rstrip()}")
+        return "\n".join(lines) + "\n\n"
     names = [module_import(name) or name for name in (required or [])]
     lines = [
         "These modules are already adopted and available in the test harness.",
@@ -224,7 +320,25 @@ def _test_modules_prompt(modules, required=None) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def generate_tests(behavior: str, modules=None, required=None) -> TestsResult:
+def generate_tests(behavior: str, modules=None, required=None, name=None) -> TestsResult:
+    if _swift_mode():
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        return _request_generation(
+            "Behavioral specification:\n"
+            f"{behavior}\n\n"
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+            f"{_test_modules_prompt(modules, required, swift=True)}"
+            "Write the XCTest unit tests and the behavioral check first.\n"
+            f"{type_name} is an empty stub.\n"
+            "The tests and the check must fail because the behavior is not implemented yet.",
+            _swift_test_instructions(package, type_name, modules, required),
+            TestsResult,
+        )
     return _request_generation(
         "Behavioral specification:\n"
         f"{behavior}\n\n"
@@ -245,7 +359,39 @@ def repair_tests(
     kind: str,
     modules=None,
     required=None,
+    name=None,
 ) -> TestsResult:
+    if _swift_mode():
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        if kind == "pass":
+            reason = "swift test passed. The tests do not require the behavior."
+        else:
+            reason = (
+                "swift test did not fail on the missing behavior. "
+                "A compile success with passing asserts means the tests are wrong."
+            )
+        return _request_generation(
+            "Behavioral specification:\n"
+            f"{behavior}\n\n"
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+            f"{_test_modules_prompt(modules, required, swift=True)}"
+            f"{type_name} is an empty stub. The tests are written before the implementation.\n"
+            f"{reason}\n"
+            "Fix the tests and the check.\n"
+            f"They must import XCTest and @testable import {package}.\n"
+            "They must fail because the behavior is not implemented.\n"
+            "Do not write the implementation.\n\n"
+            f"Current tests:\n{tests}\n\n"
+            f"Current check:\n{check}\n\n"
+            f"swift test output:\n{_failure_text(output)}",
+            _swift_test_instructions(package, type_name, modules, required),
+            TestsResult,
+        )
     if kind == "pass":
         reason = "Pytest passed. The tests do not require the behavior."
     elif kind == "uses":
@@ -284,9 +430,22 @@ def repair_tests(
     )
 
 
-def _modules_prompt(modules, required=None) -> str:
+def _modules_prompt(modules, required=None, swift=False) -> str:
     if not modules and not required:
+        if swift:
+            return "No other project types are required. Keep the API self-contained.\n\n"
         return "No other project modules are available. Do not import another project module.\n\n"
+    if swift:
+        names = [swift_type_name(name) or name for name in (required or [])]
+        lines = ["These types are already adopted in the same package. Do not reimplement them."]
+        if names:
+            lines.append(
+                "Use each of these types while performing the behavior: " + ", ".join(names) + "."
+            )
+        for name, content in modules or []:
+            shown = swift_type_name(name) or name
+            lines.append(f"\nType {shown}:\n{str(content).rstrip()}")
+        return "\n".join(lines) + "\n\n"
     names = [module_import(name) or name for name in (required or [])]
     lines = ["These modules are already adopted. Do not reimplement them."]
     if names:
@@ -301,7 +460,26 @@ def _modules_prompt(modules, required=None) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def generate_code(behavior: str, tests: str, check: str, modules=None, required=None) -> CodeResult:
+def generate_code(behavior: str, tests: str, check: str, modules=None, required=None, name=None) -> CodeResult:
+    if _swift_mode():
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        return _request_generation(
+            "Behavioral specification:\n"
+            f"{behavior}\n\n"
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+            f"{_modules_prompt(modules, required, swift=True)}"
+            "The tests and the check are fixed.\n"
+            "Write the shortest Swift implementation that makes them pass.\n\n"
+            f"Tests:\n{tests}\n\n"
+            f"Check:\n{check}",
+            _SWIFT_CODE_INSTRUCTIONS,
+            CodeResult,
+        )
     return _request_generation(
         "Behavioral specification:\n"
         f"{behavior}\n\n"
@@ -385,7 +563,38 @@ def repair_cycle(members) -> CycleRepair:
         CycleRepair,
     )
 
-def _repair_request(behavior, code, tests, check, output, modules, required, tests_passed):
+def _repair_request(behavior, code, tests, check, output, modules, required, tests_passed, swift=False, name=None):
+    if swift:
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        if tests_passed:
+            failure = (
+                "swift test passed, but the code should still use the adopted dependency types.\n"
+                "Keep the tests passing.\n"
+                "Do not change the tests or the check.\n"
+                "Keep the code as short as possible.\n\n"
+            )
+        else:
+            failure = (
+                "The tests failed. The tests and the check are fixed.\n"
+                "Change only the Swift code so swift test passes.\n"
+                "Keep the code as short as possible.\n\n"
+            )
+        return (
+            "Behavioral specification:\n"
+            f"{behavior}\n\n"
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+            f"{_modules_prompt(modules, required, swift=True)}"
+            f"{failure}"
+            f"Current code:\n{code}\n\n"
+            f"Tests:\n{tests}\n\n"
+            f"Check:\n{check}\n\n"
+            f"swift test output:\n{_failure_text(output)}"
+        )
     if tests_passed:
         failure = (
             "Pytest passed.\n"
@@ -413,15 +622,51 @@ def _repair_request(behavior, code, tests, check, output, modules, required, tes
     )
 
 
-def repair_code(behavior: str, code: str, tests: str, check: str, output: str, modules=None, required=None, tests_passed=False) -> CodeResult:
+def repair_code(
+    behavior: str,
+    code: str,
+    tests: str,
+    check: str,
+    output: str,
+    modules=None,
+    required=None,
+    tests_passed=False,
+    name=None,
+) -> CodeResult:
+    swift = _swift_mode()
     return _request_generation(
-        _repair_request(behavior, code, tests, check, output, modules, required, tests_passed),
-        _CODE_INSTRUCTIONS,
+        _repair_request(
+            behavior, code, tests, check, output, modules, required, tests_passed, swift, name
+        ),
+        _SWIFT_CODE_INSTRUCTIONS if swift else _CODE_INSTRUCTIONS,
         CodeResult,
     )
 
 
-def refactor_code(behavior: str, code: str, tests: str, check: str, modules=None, required=None) -> CodeResult:
+def refactor_code(
+    behavior: str, code: str, tests: str, check: str, modules=None, required=None, name=None
+) -> CodeResult:
+    if _swift_mode():
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        return _request_generation(
+            "Behavioral specification:\n"
+            f"{behavior}\n\n"
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+            f"{_modules_prompt(modules, required, swift=True)}"
+            "The tests and the check are fixed.\n"
+            "Rewrite the Swift implementation so it is easier to read.\n"
+            "Keep the same behavior.\n\n"
+            f"Current code:\n{code}\n\n"
+            f"Tests:\n{tests}\n\n"
+            f"Check:\n{check}",
+            _SWIFT_REFACTOR_INSTRUCTIONS,
+            CodeResult,
+        )
     return _request_generation(
         "Behavioral specification:\n"
         f"{behavior}\n\n"

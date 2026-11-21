@@ -1047,11 +1047,22 @@ def build_one(root, record):
             return "failed", "was not saved"
     elif not same or force_rebuild:
         print(f"Building {spec_name}...")
+        prior_generation = None
+        if force_rebuild and spec is not None:
+            prior_latest = get_latest_artifact(spec["id"], "code")
+            if prior_latest is not None:
+                prior_generation = prior_latest["generation"]
         spec_command(spec_name, prose, modules, canonical, required)
         spec = get_spec(spec_name)
         if spec is None or str(spec["behavior"]).strip() != canonical:
             print(f"'{spec_name}' was not saved.")
             return "failed", "was not saved"
+        if force_rebuild:
+            latest = get_latest_artifact(spec["id"], "code")
+            if latest is None or latest["generation"] == prior_generation:
+                print(f"'{spec_name}' was not rebuilt.")
+                log.info("build force rebuild saved nothing %s", spec_name)
+                return "failed", "uses coverage rebuild was not saved"
     else:
         print(f"Adopting {spec_name}...")
     adopted = get_adopted_artifact(spec["id"], "code")

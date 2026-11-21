@@ -22,7 +22,7 @@ The language target is per project in `.mechanicus/project.yaml`. When that file
 
 Enter `/target swift-package MyAppLogic` to select a Swift package. Mechanicus writes `project.yaml` and scaffolds `MyAppLogic/Package.swift` once (it does not overwrite an existing manifest). The package name must be a legal Swift identifier (letters, digits, underscore). Hyphens are normalized to underscores. Specs still use `.module` files beside `Package.swift`. Adopted logic lands under `Sources/MyAppLogic/` and XCTest under `Tests/MyAppLogicTests/`. `/build` and `/adopt` run `swift test` in that package in place. Enter `/target python` to return to Python.
 
-Swift v1 is pure logic only (no SwiftUI). Do not plan modules named `Tests` or ending in `/Tests`; Mechanicus writes XCTest for each logic module. Link the local package from an Xcode app separately. Cross-module `uses:` call-graph proofs from the Python path are not enforced for Swift yet; compile and XCTest green are the adopt gate.
+Swift v1 is pure logic only (no SwiftUI). Do not plan modules named `Tests` or ending in `/Tests`; Mechanicus writes XCTest for each logic module. Link the local package from an Xcode app separately. After `swift test` passes, adopt still requires each `uses:` dependency's Swift type name to appear in the implementation. The Python stub-dependency probe is not used for Swift.
 
 ## Start
 
@@ -190,7 +190,7 @@ Jev reads the modules after that change. A score below 0.7 sends the change back
 
 When modules use each other, Mechanicus adds one module for the shared job. The modules in the cycle do not use each other. Those modules can use the new module. Mechanicus writes the new file, then continues the build. When Mechanicus cannot use that new module, it removes `uses:` lines until the modules do not use each other. Mechanicus does not change a pinned module in that cycle.
 
-Pytest loads the module under test as `impl.py`. It also loads each adopted module named in `uses:`, and the modules those modules use. The code must call each module named in its own `uses:` line. An unused import does not pass. A module that names a missing module is not built.
+Pytest loads the module under test as `impl.py`. It also loads each adopted module named in `uses:`, and the modules those modules use. The code must call each module named in its own `uses:` line. An unused import does not pass. For a Swift package, `swift test` must pass and the implementation must mention each required dependency type. A module that names a missing module is not built.
 
 A pinned specification does not change. A module that is already adopted for the same behavior is written to disk and is not sent to the model, unless a `uses:` dependency’s adopted generation changed since this module was last adopted. In that case Mechanicus re-runs adopt against the current dependencies. If adopt fails, it regenerates the module, then adopts again. A module that fails is reported. Mechanicus does not write that module.
 

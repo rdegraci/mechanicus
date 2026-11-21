@@ -102,3 +102,53 @@ final class GreeterCheckTests: XCTestCase {
     assert adopted is not None
     assert "hello" in adopted["content"]
     assert spec["adopt_status"] == "ok"
+
+
+def test_adopt_refuses_swift_code_that_omits_required_type(project, monkeypatch, capsys):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="DemoKit")
+    tests = """
+import XCTest
+@testable import DemoKit
+final class ExportServiceTests: XCTestCase {
+    func testRun() { XCTAssertEqual(ExportService.run(), "ok") }
+}
+"""
+    check = """
+import XCTest
+@testable import DemoKit
+final class ExportServiceCheckTests: XCTestCase {
+    func testRun() { XCTAssertEqual(ExportService.run(), "ok") }
+}
+"""
+    save_generation(
+        "SFExport/ExportService",
+        "export rows",
+        "public struct ExportService { public static func run() -> String { \"ok\" } }\n",
+        tests,
+        check,
+    )
+    monkeypatch.setattr("mechanicus.lifecycle.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr("mechanicus.lifecycle.is_swift_package", lambda root=None: True)
+    monkeypatch.setattr("mechanicus.lifecycle.swift_toolchain_available", lambda: True)
+    monkeypatch.setattr(
+        "mechanicus.lifecycle.run_swift_tests",
+        lambda root, name=None: (True, "passed"),
+    )
+    monkeypatch.setattr(
+        "mechanicus.lifecycle.write_swift_artifacts",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "mechanicus.lifecycle.ensure_package_scaffold",
+        lambda root: None,
+    )
+    adopt_spec(
+        "SFExport/ExportService",
+        modules=[("SFCore/Domain", "public struct SFCoreDomain {}\n")],
+        required=["SFCore/Domain"],
+    )
+    spec = get_spec("SFExport/ExportService")
+    assert spec["adopt_status"] == "failed"
+    assert spec["adopt_reason"] == "uncalled"
+    assert get_adopted_artifact(spec["id"], "code") is None
+    assert "SFCoreDomain" in capsys.readouterr().out

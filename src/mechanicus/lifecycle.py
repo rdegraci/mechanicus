@@ -67,6 +67,7 @@ from mechanicus.swift_support import (
     read_swift_artifacts,
     restore_swift_artifacts,
     run_swift_tests,
+    missing_swift_dependency_types,
     sniff_swift_test_sources,
     swift_check_path,
     swift_code_is_empty,
@@ -512,6 +513,21 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             )
             passed, output = run_swift_tests(root, name)
             pytest_passed = passed
+            if passed and required:
+                unused = missing_swift_dependency_types(code["content"], required)
+                if unused:
+                    passed = False
+                    output = (
+                        "The code does not use these adopted types: "
+                        + ", ".join(unused)
+                        + ".\nUse each type while performing the behavior."
+                    )
+                    log.info(
+                        "generation %s does not use %s",
+                        code["generation"],
+                        ", ".join(unused),
+                    )
+                    print(output)
         else:
             passed, output = run_tests(
                 code["content"], tests["content"], check["content"], modules

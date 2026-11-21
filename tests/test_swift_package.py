@@ -21,6 +21,7 @@ from mechanicus.swift_support import (
     empty_stub,
     ensure_package_scaffold,
     is_swift_test_suite_module_name,
+    missing_swift_dependency_types,
     run_swift_tests,
     sniff_swift_test_sources,
     swift_check_path,
@@ -223,6 +224,17 @@ final class MappingTests: XCTestCase {
     assert sniff_swift_test_sources(no_api, no_api, project, "SFPersistence/Mapping") == (
         "no_api_call_tests"
     )
+
+
+def test_missing_swift_dependency_types():
+    code = "public struct ExportService { let domain: SFCoreDomain }\n"
+    assert missing_swift_dependency_types(code, ["SFCore/Domain"]) == []
+    assert missing_swift_dependency_types(code, ["SFExport/CSVFormatting"]) == [
+        "SFExportCSVFormatting"
+    ]
+    assert missing_swift_dependency_types(
+        "let domain = 1\n", ["SFCore/Domain"]
+    ) == ["SFCoreDomain"]
 
 
 def test_swift_code_is_empty_and_test_suite_names():

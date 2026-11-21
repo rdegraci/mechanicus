@@ -108,6 +108,18 @@ def swift_layout_conflict(root, name):
     return None
 
 
+def missing_swift_dependency_types(code, required):
+    """Return Swift type names from required that do not appear in code."""
+    text = str(code or "")
+    missing = []
+    for spec_name in required or []:
+        type_name = swift_type_name(spec_name)
+        label = type_name or str(spec_name)
+        if not type_name or not re.search(rf"\b{re.escape(type_name)}\b", text):
+            missing.append(label)
+    return missing
+
+
 def empty_stub(root, name):
     type_name = swift_type_name(name) or "Generated"
     return (

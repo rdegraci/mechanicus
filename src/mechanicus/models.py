@@ -13,6 +13,15 @@ class CodeResult(BaseModel):
     explanation: str
 
 
+class StrengthenReview(BaseModel):
+    """Whether adopted tests adequately prove the behavior."""
+
+    adequate: bool
+    reason: str
+    gaps: str = ""
+    explanation: str = ""
+
+
 class PlannedModule(BaseModel):
     name: str
     behavior: str

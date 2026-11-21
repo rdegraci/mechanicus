@@ -20,7 +20,13 @@ from mechanicus.jev import (
     feature_score,
     missing_behaviors,
 )
-from mechanicus.lifecycle import adopt_spec, disk_sync_status, spec_command, write_adopted
+from mechanicus.lifecycle import (
+    adopt_spec,
+    disk_sync_status,
+    spec_command,
+    strengthen_adopted,
+    write_adopted,
+)
 from mechanicus.paths import layout_conflict, write_text_file
 from mechanicus.project import is_swift_package
 from mechanicus.store import (
@@ -896,8 +902,14 @@ def build_one(root, record):
             and str(adopted["content"]).strip()
             and str(adopted["behavior"] or "").strip() == canonical
         ):
+            strengthen_result = strengthen_adopted(spec_name, modules, required)
+            strengthen_suffix = ""
+            if strengthen_result == "strengthened":
+                strengthen_suffix = "; strengthened"
+            elif strengthen_result == "kept_first":
+                strengthen_suffix = "; strengthen kept first"
             if write_adopted(root, spec_name):
-                return "built", "re-adopted after upstream change"
+                return "built", f"re-adopted after upstream change{strengthen_suffix}"
             return "failed", "re-adopted; disk was not updated"
         print(f"Building {spec_name}...")
         spec_command(spec_name, prose, modules, canonical, required)
@@ -929,10 +941,16 @@ def build_one(root, record):
     if not deps_are_current(spec_name, required):
         print(f"'{spec_name}' was not adopted.")
         return "failed", "was not adopted"
+    strengthen_suffix = ""
+    strengthen_result = strengthen_adopted(spec_name, modules, required)
+    if strengthen_result == "strengthened":
+        strengthen_suffix = "; strengthened"
+    elif strengthen_result == "kept_first":
+        strengthen_suffix = "; strengthen kept first"
     if write_adopted(root, spec_name):
         if rebuilt_upstream:
-            return "built", "rebuilt after upstream change"
-        return "built", "adopted and wrote disk"
+            return "built", f"rebuilt after upstream change{strengthen_suffix}"
+        return "built", f"adopted and wrote disk{strengthen_suffix}"
     return "failed", "adopted; disk was not updated"
 
 

@@ -165,6 +165,53 @@ def sniff_test_sources(tests, check):
     return None
 
 
+def _normalize_for_similarity(text):
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def suite_sources_near_duplicate(tests, check):
+    """True when check is essentially a copy of the unit tests."""
+    left = _normalize_for_similarity(tests)
+    right = _normalize_for_similarity(check)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    if len(shorter) < 40:
+        return False
+    return shorter in longer and len(shorter) / len(longer) >= 0.85
+
+
+def count_python_asserts(text):
+    body = str(text or "")
+    return len(re.findall(r"(?m)^\s*assert\b", body)) + len(
+        re.findall(r"\b(?:assert\w+|pytest\.raises)\s*\(", body)
+    )
+
+
+def sniff_suite_thinness(tests, check, behavior="", *, swift=False):
+    """Return a reason when the suite looks too thin or duplicated, else None.
+
+    Used after basic sniff passes, especially for post-adopt strengthen.
+    """
+    if suite_sources_near_duplicate(tests, check):
+        return "duplicate_check"
+    if swift:
+        from mechanicus.swift_support import count_swift_asserts
+
+        asserts = count_swift_asserts(tests) + count_swift_asserts(check)
+    else:
+        asserts = count_python_asserts(tests) + count_python_asserts(check)
+    behavior_text = str(behavior or "").strip()
+    if asserts < 1:
+        return "thin_suite"
+    # Longer behaviors should not clear the gate with a single assert pair.
+    if asserts < 2 and len(behavior_text) >= 120:
+        return "thin_suite"
+    return None
+
+
 def _trivial_failure_output(output: str) -> bool:
     patterns = (
         r"(?m)^E\s+assert False\s*$",

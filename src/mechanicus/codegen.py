@@ -9,6 +9,7 @@ from mechanicus.models import (
     BehaviorParts,
     CodeResult,
     CycleRepair,
+    StrengthenReview,
     TestsResult,
 )
 from mechanicus.paths import module_import
@@ -97,6 +98,12 @@ Write the tests before the implementation. impl.py is empty.
 The tests and the check must fail because the behavior is not implemented yet.
 Do not write the implementation.
 {import_rule}
+Adequacy:
+- Cover the success path the behavior names.
+- Cover important failures, edges, or invariants the behavior names (when any).
+- The check must be a higher-level scenario, not a near-copy of the unit tests.
+- Do not write a single trivial assert, assert False alone, or pytest.fail alone.
+- Prefer enough cases to prove the behavior; do not minimize the number of tests.
 Output fields:
 - tests: {tests_field}
 - check: {check_field}
@@ -128,6 +135,11 @@ Call the public API of {type_name} (initializers and members).
 Do not use XCTFail alone to say the API is missing or unspecified.
 Prefer XCTAssert* against returned values so a real implementation can pass.
 A stub without the needed members should fail to compile or fail assertions.
+Adequacy:
+- Cover the success path the behavior names.
+- Cover important failures, edges, or invariants the behavior names (when any).
+- The check must be a higher-level scenario, not a near-copy of the unit tests.
+- Prefer enough cases to prove the behavior; do not minimize the number of tests.
 {import_rule}
 Output fields:
 - tests: XCTest unit tests for {type_name}
@@ -708,5 +720,123 @@ def refactor_code(
         f"Check:\n{check}",
         _REFACTOR_INSTRUCTIONS,
         CodeResult,
+    )
+
+
+_STRENGTHEN_REVIEW_INSTRUCTIONS = """You review whether adopted tests adequately prove a behavioral specification.
+
+The implementation already passes these tests. Judge adequacy, not style.
+Mark adequate=false when the suite is thin relative to the behavior: missing named edges or failures,
+only a trivial happy path, or a check that is a near-copy of the unit tests.
+Mark adequate=true when the suite reasonably proves what the behavior requires.
+Do not demand exhaustive coverage or cases the behavior never implies.
+
+Output fields:
+- adequate: true when the suite is good enough
+- reason: short code such as ok, thin_suite, missing_edges, duplicate_check
+- gaps: what is missing when adequate is false; empty when adequate is true
+- explanation: one short paragraph
+"""
+
+_STRENGTHEN_TESTS_INSTRUCTIONS_PYTHON = _SHARED_INSTRUCTIONS + """
+The implementation already exists and passes the current tests.
+Strengthen the tests and the check so they adequately prove the behavior.
+Keep cases that already matter. Add cases for success and for edges or failures the behavior names.
+The check must be a higher-level scenario, not a near-copy of the unit tests.
+Do not write the implementation. Do not weaken existing asserts.
+
+Output fields:
+- tests: strengthened pytest unit tests that import impl
+- check: strengthened higher-level pytest behavioral check that imports impl
+- explanation: one short paragraph
+"""
+
+_STRENGTHEN_TESTS_INSTRUCTIONS_SWIFT = _SWIFT_SHARED_INSTRUCTIONS + """
+The implementation already exists and passes the current XCTest suites.
+Strengthen the tests and the check so they adequately prove the behavior.
+Keep cases that already matter. Add cases for success and for edges or failures the behavior names.
+The check must be a higher-level scenario, not a near-copy of the unit tests.
+Do not write the implementation. Do not weaken existing asserts.
+Each of tests and check must remain a complete XCTest source file with @testable import of the package.
+
+Output fields:
+- tests: strengthened XCTest unit tests
+- check: strengthened higher-level XCTest behavioral check
+- explanation: one short paragraph
+"""
+
+
+def review_suite_adequacy(
+    behavior: str, code: str, tests: str, check: str, name=None
+) -> StrengthenReview:
+    if _swift_mode():
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        header = (
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+        )
+    else:
+        header = ""
+    return _request_generation(
+        "Behavioral specification:\n"
+        f"{behavior}\n\n"
+        f"{header}"
+        f"Current code:\n{code}\n\n"
+        f"Tests:\n{tests}\n\n"
+        f"Check:\n{check}\n\n"
+        "Decide whether these tests adequately prove the behavior.",
+        _STRENGTHEN_REVIEW_INSTRUCTIONS,
+        StrengthenReview,
+    )
+
+
+def strengthen_tests(
+    behavior: str,
+    code: str,
+    tests: str,
+    check: str,
+    gaps: str = "",
+    modules=None,
+    required=None,
+    name=None,
+) -> TestsResult:
+    gap_note = f"Gaps to address:\n{gaps}\n\n" if str(gaps or "").strip() else ""
+    if _swift_mode():
+        root = startup_dir()
+        package = project_package_name(root)
+        type_name = swift_type_name(name) if name else "Generated"
+        if not type_name:
+            type_name = "Generated"
+        return _request_generation(
+            "Behavioral specification:\n"
+            f"{behavior}\n\n"
+            f"Package name: {package}\n"
+            f"Primary public type name: {type_name}\n\n"
+            f"{_test_modules_prompt(modules, required, swift=True)}"
+            f"{gap_note}"
+            "Strengthen the XCTest unit tests and the behavioral check.\n"
+            "The current implementation already exists.\n\n"
+            f"Current code:\n{code}\n\n"
+            f"Current tests:\n{tests}\n\n"
+            f"Current check:\n{check}",
+            _STRENGTHEN_TESTS_INSTRUCTIONS_SWIFT,
+            TestsResult,
+        )
+    return _request_generation(
+        "Behavioral specification:\n"
+        f"{behavior}\n\n"
+        f"{_test_modules_prompt(modules, required)}"
+        f"{gap_note}"
+        "Strengthen the unit tests and the behavioral check.\n"
+        "The current implementation already exists.\n\n"
+        f"Current code:\n{code}\n\n"
+        f"Current tests:\n{tests}\n\n"
+        f"Current check:\n{check}",
+        _STRENGTHEN_TESTS_INSTRUCTIONS_PYTHON,
+        TestsResult,
     )
 

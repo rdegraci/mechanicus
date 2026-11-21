@@ -179,6 +179,8 @@ Pytest loads the module under test as `impl.py`. It also loads each adopted modu
 
 A pinned specification does not change. A module that is already adopted for the same behavior is written to disk and is not sent to the model, unless a `uses:` dependency’s adopted generation changed since this module was last adopted. In that case Mechanicus re-runs adopt against the current dependencies. If adopt fails, it regenerates the module, then adopts again. A module that fails is reported. Mechanicus does not write that module.
 
+After a module adopts during `/build`, Mechanicus may strengthen the suite once: it reviews the tests and check against the behavior (and the adopted code), and when the suite looks thin it rewrites the tests, regenerates code, and re-adopts with a longer generation allowed. Pinned and unchanged modules are skipped. If strengthen fails, Mechanicus keeps the first adopt and reports that in the build reason (`strengthen kept first`). Python and Swift both use this path.
+
 ## Adopt
 
 1. Enter `/adopt` and the specification name.

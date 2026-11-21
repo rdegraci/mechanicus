@@ -274,7 +274,11 @@ def restore_swift_artifacts(root, name, snapshot):
         write_text_file(check_path, check)
 
 
-def sniff_swift_test_sources(tests, check, root, name):
+def count_swift_asserts(text):
+    return len(re.findall(r"\bXCTAssert\w*\b", str(text or "")))
+
+
+def sniff_swift_test_sources(tests, check, root, name, behavior=""):
     """Return a reason when Swift tests look too weak, else None."""
     package = project_package_name(root)
     type_name = swift_type_name(name) or ""
@@ -301,7 +305,9 @@ def sniff_swift_test_sources(tests, check, root, name):
             )
             if not api_call:
                 return f"no_api_call_{label}"
-    return None
+    from mechanicus.harness import sniff_suite_thinness
+
+    return sniff_suite_thinness(tests, check, behavior, swift=True)
 
 
 def classify_swift_before_code(passed, output):

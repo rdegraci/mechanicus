@@ -13,6 +13,8 @@ from mechanicus.codegen import (
     refactor_code,
     repair_code,
     repair_tests,
+    review_suite_adequacy,
+    strengthen_tests,
 )
 from mechanicus.config import configured_repair_attempts, log, startup_dir
 from mechanicus.harness import (
@@ -20,6 +22,7 @@ from mechanicus.harness import (
     classify_before_code_with_reason,
     real_deps_exercised,
     run_tests,
+    sniff_suite_thinness,
     sniff_test_sources,
     tests_for_disk,
     uncalled_modules,
@@ -663,6 +666,204 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
         print(f"\nSaved generation {generation}.")
 
 
+def strengthen_adopted(name, modules=None, required=None):
+    """Review an adopted suite once; strengthen tests/code when thin.
+
+    Returns one of: "adequate", "strengthened", "kept_first", "skipped".
+    Soft-fail: on strengthen failure keep the already-adopted generation.
+    """
+    log.info("strengthen %s", name)
+    if modules is None or required is None:
+        from mechanicus.plan_build import dependency_modules
+
+        modules, required, missing = dependency_modules(startup_dir(), name)
+        if missing:
+            log.info("strengthen skipped: missing deps for %s", name)
+            return "skipped"
+    required = list(required or [])
+    modules = modules or []
+    spec = get_spec(name)
+    if spec is None or spec["pinned"]:
+        return "skipped"
+    code = get_adopted_artifact(spec["id"], "code")
+    tests = get_adopted_artifact(spec["id"], "tests")
+    check = get_adopted_artifact(spec["id"], "check")
+    if (
+        code is None
+        or tests is None
+        or check is None
+        or not str(code["content"]).strip()
+        or not str(tests["content"]).strip()
+        or not str(check["content"]).strip()
+    ):
+        return "skipped"
+    first_generation = code["generation"]
+    behavior = spec["behavior"]
+    root = startup_dir()
+    swift = is_swift_package(root)
+
+    thin = None
+    if swift:
+        thin = sniff_swift_test_sources(
+            tests["content"], check["content"], root, name, behavior=behavior
+        )
+    else:
+        thin = sniff_test_sources(tests["content"], check["content"])
+        if thin is None:
+            thin = sniff_suite_thinness(
+                tests["content"], check["content"], behavior, swift=False
+            )
+
+    gaps = ""
+    if thin is not None:
+        print(f"Suite looks thin ({thin}). Strengthening tests...")
+        log.info("strengthen sniff=%s for %s", thin, name)
+        gaps = thin
+    else:
+        print("Reviewing suite adequacy...")
+        try:
+            review = review_suite_adequacy(
+                behavior,
+                code["content"],
+                tests["content"],
+                check["content"],
+                name=name,
+            )
+        except Exception as error:
+            log.exception("strengthen review failed for %s", name)
+            print(f"Strengthen review failed: {error}")
+            print("Keeping the first adopt.")
+            _note_adopt(
+                name,
+                "ok",
+                "strengthen_kept_first",
+                f"Review failed: {error}",
+                first_generation,
+            )
+            return "kept_first"
+        if review.adequate:
+            print("Suite is adequate. Keeping the first adopt.")
+            log.info("strengthen adequate for %s", name)
+            return "adequate"
+        print(f"Suite needs strengthening ({review.reason}).")
+        log.info(
+            "strengthen review reason=%s gaps=%s for %s",
+            review.reason,
+            review.gaps,
+            name,
+        )
+        gaps = review.gaps or review.reason
+
+    try:
+        stronger = strengthen_tests(
+            behavior,
+            code["content"],
+            tests["content"],
+            check["content"],
+            gaps=gaps,
+            modules=modules,
+            required=required,
+            name=name,
+        )
+    except Exception as error:
+        log.exception("strengthen tests failed for %s", name)
+        print(f"Could not strengthen tests: {error}")
+        print("Keeping the first adopt.")
+        _note_adopt(
+            name,
+            "ok",
+            "strengthen_kept_first",
+            f"Test rewrite failed: {error}",
+            first_generation,
+        )
+        return "kept_first"
+
+    new_tests = stronger.tests
+    new_check = stronger.check
+    if swift:
+        sniff = sniff_swift_test_sources(
+            new_tests, new_check, root, name, behavior=behavior
+        )
+    else:
+        sniff = sniff_test_sources(new_tests, new_check)
+        if sniff is None:
+            sniff = sniff_suite_thinness(new_tests, new_check, behavior, swift=False)
+    if sniff is not None:
+        print(f"Strengthened tests still look weak ({sniff}). Keeping the first adopt.")
+        _note_adopt(
+            name,
+            "ok",
+            "strengthen_kept_first",
+            f"Rewritten tests still weak ({sniff}).",
+            first_generation,
+        )
+        return "kept_first"
+
+    print("Writing code for the strengthened tests...")
+    try:
+        result = generate_code(
+            behavior, new_tests, new_check, modules, required, name=name
+        )
+        code_text = result.code
+        if swift and swift_code_is_empty(code_text):
+            print("Strengthened code was empty. Keeping the first adopt.")
+            _note_adopt(
+                name,
+                "ok",
+                "strengthen_kept_first",
+                "Generated code stayed empty.",
+                first_generation,
+            )
+            return "kept_first"
+        save_generation(name, behavior, code_text, new_tests, new_check)
+    except Exception as error:
+        log.exception("strengthen code failed for %s", name)
+        print(f"Could not generate strengthened code: {error}")
+        print("Keeping the first adopt.")
+        _note_adopt(
+            name,
+            "ok",
+            "strengthen_kept_first",
+            f"Code rewrite failed: {error}",
+            first_generation,
+        )
+        return "kept_first"
+
+    print("Adopting strengthened generation...")
+    adopt_spec(name, modules, required, allow_longer=True)
+    spec = get_spec(name)
+    adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
+    if (
+        spec is not None
+        and adopted is not None
+        and adopted["generation"] != first_generation
+        and spec["adopt_status"] == "ok"
+    ):
+        print("Strengthened suite adopted.")
+        _note_adopt(
+            name,
+            "ok",
+            "strengthen_ok",
+            "Strengthened tests and code adopted.",
+            adopted["generation"],
+        )
+        return "strengthened"
+
+    print("Strengthen adopt did not replace the first generation. Keeping the first adopt.")
+    if spec is not None:
+        current = get_adopted_artifact(spec["id"], "code")
+        if current is None or current["generation"] != first_generation:
+            mark_adopted(spec["id"], first_generation)
+        _note_adopt(
+            name,
+            "ok",
+            "strengthen_kept_first",
+            "Strengthen adopt failed; kept first adopt.",
+            first_generation,
+        )
+    return "kept_first"
+
+
 def refactor_command(name):
     log.info("refactor %s", name)
     if refuse_bootstrap(name, "refactored"):
@@ -982,7 +1183,9 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
             reason = "empty"
             log.info("tests are empty before the implementation")
         elif swift:
-            sniff = sniff_swift_test_sources(tests, check, root, name or "")
+            sniff = sniff_swift_test_sources(
+                tests, check, root, name or "", behavior=behavior
+            )
             if sniff is not None:
                 passed = False
                 output = f"Tests are too weak to prove the behavior is missing ({sniff})."
@@ -1008,6 +1211,8 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
                     print(f"Tests are not red ({reason}).")
         else:
             sniff = sniff_test_sources(tests, check)
+            if sniff is None:
+                sniff = sniff_suite_thinness(tests, check, behavior, swift=False)
             if sniff is not None:
                 passed = False
                 output = f"Tests are too weak to prove the behavior is missing ({sniff})."

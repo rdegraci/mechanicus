@@ -131,7 +131,7 @@ def test_module_statuses_stale_pinned_reason(project):
     assert "upstream" in rows["app"]["reason"]
 
 
-def test_build_one_readopts_when_upstream_changes(project):
+def test_build_one_readopts_when_upstream_changes(project, monkeypatch):
     _write_module(project, "lib", [], "library")
     _write_module(project, "app", ["lib"], "application")
     lib_text = format_module_text([], "library").strip()
@@ -169,6 +169,10 @@ def test_build_one_readopts_when_upstream_changes(project):
     mark_adopted(lib_id, lib_gen2)
     record_deps_fingerprint("lib", [])
     app_record = next(record for record in module_records(project) if record["name"] == "app")
+    # Keep this unit test offline; strengthen is covered in test_strengthen_adopted.
+    monkeypatch.setattr(
+        "mechanicus.plan_build.strengthen_adopted", lambda *a, **k: "adequate"
+    )
     status, reason = build_one(project, app_record)
     assert status == "built"
     assert "re-adopted after upstream change" in reason

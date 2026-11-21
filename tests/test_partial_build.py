@@ -144,7 +144,7 @@ def test_unchanged_weak_uses_forces_rebuild(project, monkeypatch):
     mark_adopted(app_id, app_gen)
     record_deps_fingerprint("app", ["lib"])
     monkeypatch.setattr(
-        "mechanicus.plan_build.review_adopted_uses",
+        "mechanicus.build.review_adopted_uses",
         lambda name, required=None, swift=None: [("lib", 0.1)],
     )
     called = {}
@@ -152,13 +152,13 @@ def test_unchanged_weak_uses_forces_rebuild(project, monkeypatch):
     def fake_spec(name, behavior, modules=None, record=None, required=None):
         called["name"] = name
 
-    monkeypatch.setattr("mechanicus.plan_build.spec_command", fake_spec)
+    monkeypatch.setattr("mechanicus.build.spec_command", fake_spec)
     monkeypatch.setattr(
-        "mechanicus.plan_build.adopt_spec",
+        "mechanicus.build.adopt_spec",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
-        "mechanicus.plan_build.strengthen_adopted",
+        "mechanicus.build.strengthen_adopted",
         lambda *args, **kwargs: "adequate",
     )
     status, reason = build_one(project, app_record)
@@ -191,7 +191,7 @@ def test_weak_uses_rebuild_continues_when_generation_saved(project, monkeypatch)
     mark_adopted(app_id, app_gen)
     record_deps_fingerprint("app", ["lib"])
     monkeypatch.setattr(
-        "mechanicus.plan_build.review_adopted_uses",
+        "mechanicus.build.review_adopted_uses",
         lambda name, required=None, swift=None: [("lib", 0.1)],
     )
 
@@ -204,13 +204,13 @@ def test_weak_uses_rebuild_continues_when_generation_saved(project, monkeypatch)
             "import impl\n\ndef test_check():\n    assert impl.run()\n",
         )
 
-    monkeypatch.setattr("mechanicus.plan_build.spec_command", fake_spec)
+    monkeypatch.setattr("mechanicus.build.spec_command", fake_spec)
     monkeypatch.setattr(
-        "mechanicus.plan_build.adopt_spec",
+        "mechanicus.build.adopt_spec",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
-        "mechanicus.plan_build.strengthen_adopted",
+        "mechanicus.build.strengthen_adopted",
         lambda *args, **kwargs: "adequate",
     )
     status, reason = build_one(project, app_record)

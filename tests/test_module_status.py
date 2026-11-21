@@ -171,7 +171,7 @@ def test_build_one_readopts_when_upstream_changes(project, monkeypatch):
     app_record = next(record for record in module_records(project) if record["name"] == "app")
     # Keep this unit test offline; strengthen is covered in test_strengthen_adopted.
     monkeypatch.setattr(
-        "mechanicus.plan_build.strengthen_adopted", lambda *a, **k: "adequate"
+        "mechanicus.build.strengthen_adopted", lambda *a, **k: "adequate"
     )
     status, reason = build_one(project, app_record)
     assert status == "built"

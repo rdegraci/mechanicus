@@ -74,20 +74,16 @@ final class GreeterCheckTests: XCTestCase {
             return False, "XCTFail: Greeter has no specified public behavior"
         return True, "Test Suite passed"
 
-    monkeypatch.setattr("mechanicus.lifecycle.is_swift_package", lambda root=None: True)
-    monkeypatch.setattr("mechanicus.lifecycle.swift_toolchain_available", lambda: True)
-    monkeypatch.setattr("mechanicus.lifecycle.sniff_swift_test_sources", fake_sniff)
+    monkeypatch.setattr("mechanicus.adopt.is_swift_package", lambda root=None: True)
+    monkeypatch.setattr("mechanicus.adopt.swift_toolchain_available", lambda: True)
+    monkeypatch.setattr("mechanicus.adopt.sniff_swift_test_sources", fake_sniff)
     monkeypatch.setattr("mechanicus.lifecycle.tests_until_red", fake_tests_until_red)
-    monkeypatch.setattr("mechanicus.lifecycle.generate_code", fake_generate_code)
-    monkeypatch.setattr("mechanicus.lifecycle.repair_code", fake_repair_code)
-    monkeypatch.setattr("mechanicus.lifecycle.run_swift_tests", fake_run_swift)
+    monkeypatch.setattr("mechanicus.adopt.generate_code", fake_generate_code)
+    monkeypatch.setattr("mechanicus.adopt.repair_code", fake_repair_code)
+    monkeypatch.setattr("mechanicus.adopt.run_swift_tests", fake_run_swift)
     monkeypatch.setattr(
-        "mechanicus.lifecycle.write_swift_artifacts",
+        "mechanicus.adopt.write_swift_artifacts",
         lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "mechanicus.lifecycle.ensure_package_scaffold",
-        lambda root: None,
     )
 
     adopt_spec("greeter", modules=[], required=[])
@@ -127,20 +123,16 @@ final class ExportServiceCheckTests: XCTestCase {
         tests,
         check,
     )
-    monkeypatch.setattr("mechanicus.lifecycle.configured_repair_attempts", lambda: 0)
-    monkeypatch.setattr("mechanicus.lifecycle.is_swift_package", lambda root=None: True)
-    monkeypatch.setattr("mechanicus.lifecycle.swift_toolchain_available", lambda: True)
+    monkeypatch.setattr("mechanicus.adopt.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr("mechanicus.adopt.is_swift_package", lambda root=None: True)
+    monkeypatch.setattr("mechanicus.adopt.swift_toolchain_available", lambda: True)
     monkeypatch.setattr(
-        "mechanicus.lifecycle.run_swift_tests",
+        "mechanicus.adopt.run_swift_tests",
         lambda root, name=None: (True, "passed"),
     )
     monkeypatch.setattr(
-        "mechanicus.lifecycle.write_swift_artifacts",
+        "mechanicus.adopt.write_swift_artifacts",
         lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "mechanicus.lifecycle.ensure_package_scaffold",
-        lambda root: None,
     )
     adopt_spec(
         "SFExport/ExportService",

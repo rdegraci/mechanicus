@@ -5,7 +5,7 @@ from mechanicus.jev import (
     last_jev_result,
 )
 from mechanicus.models import ApplicationPlan, DescriptionEnrichment, PlannedModule
-from mechanicus.plan_build import parse_plan_args, plan_command
+from mechanicus.plan_modes import parse_plan_args, plan_command
 
 
 def test_parse_plan_args_modes():
@@ -49,11 +49,11 @@ def test_plan_mvp_does_not_enrich(project, monkeypatch, capsys):
     called = {"enrich": 0, "breadth": 0, "mode": None}
 
     monkeypatch.setattr(
-        "mechanicus.plan_build.description_breadth",
+        "mechanicus.plan_modes.description_breadth",
         lambda description: called.__setitem__("breadth", called["breadth"] + 1) or [],
     )
     monkeypatch.setattr(
-        "mechanicus.plan_build.enrich_application_description",
+        "mechanicus.plan_modes.enrich_application_description",
         lambda description, gaps=None: called.__setitem__("enrich", called["enrich"] + 1),
     )
 
@@ -66,9 +66,9 @@ def test_plan_mvp_does_not_enrich(project, monkeypatch, capsys):
             explanation="mvp plan",
         )
 
-    monkeypatch.setattr("mechanicus.plan_build.plan_application", fake_plan)
+    monkeypatch.setattr("mechanicus.plan_modes.plan_application", fake_plan)
     monkeypatch.setattr(
-        "mechanicus.plan_build._cover_plan",
+        "mechanicus.plan_modes._cover_plan",
         lambda root, description, normalized: normalized,
     )
     plan_command(project, "A greeter app", mode="mvp")
@@ -88,7 +88,7 @@ def test_plan_full_enriches_and_saves_full_brief(project, monkeypatch, capsys):
     called = {"enrich": 0, "plan_desc": None, "mode": None}
 
     monkeypatch.setattr(
-        "mechanicus.plan_build.description_breadth",
+        "mechanicus.plan_modes.description_breadth",
         lambda description: (
             ["outcomes", "failures"]
             if "Assumed" not in description and "export" not in description
@@ -108,7 +108,7 @@ def test_plan_full_enriches_and_saves_full_brief(project, monkeypatch, capsys):
         )
 
     monkeypatch.setattr(
-        "mechanicus.plan_build.enrich_application_description",
+        "mechanicus.plan_modes.enrich_application_description",
         fake_enrich,
     )
 
@@ -122,9 +122,9 @@ def test_plan_full_enriches_and_saves_full_brief(project, monkeypatch, capsys):
             explanation="full plan",
         )
 
-    monkeypatch.setattr("mechanicus.plan_build.plan_application", fake_plan)
+    monkeypatch.setattr("mechanicus.plan_modes.plan_application", fake_plan)
     monkeypatch.setattr(
-        "mechanicus.plan_build._cover_plan",
+        "mechanicus.plan_modes._cover_plan",
         lambda root, description, normalized: normalized,
     )
     original = "A notebook that stores pages."

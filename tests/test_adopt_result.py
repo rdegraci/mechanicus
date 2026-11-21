@@ -5,7 +5,7 @@ from mechanicus.store import get_spec, mark_adopted, save_generation
 
 def test_adopt_ok_records_result(project, monkeypatch):
     monkeypatch.setattr(
-        "mechanicus.lifecycle.run_tests",
+        "mechanicus.adopt.run_tests",
         lambda code, tests, check, modules=None: (True, "ok"),
     )
     spec_id, generation = save_generation(
@@ -44,9 +44,9 @@ def test_adopt_no_tests_records_failed(project):
 
 
 def test_adopt_harness_failure_records(project, monkeypatch):
-    monkeypatch.setattr("mechanicus.lifecycle.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr("mechanicus.adopt.configured_repair_attempts", lambda: 0)
     monkeypatch.setattr(
-        "mechanicus.lifecycle.run_tests",
+        "mechanicus.adopt.run_tests",
         lambda code, tests, check, modules=None: (False, "AssertionError: boom"),
     )
     spec_id, generation = save_generation(
@@ -66,7 +66,7 @@ def test_adopt_harness_failure_records(project, monkeypatch):
 
 def test_save_generation_clears_adopt_result(project, monkeypatch):
     monkeypatch.setattr(
-        "mechanicus.lifecycle.run_tests",
+        "mechanicus.adopt.run_tests",
         lambda code, tests, check, modules=None: (True, "ok"),
     )
     save_generation("mod", "beh", "x = 1\n", "t", "c")
@@ -81,7 +81,7 @@ def test_save_generation_clears_adopt_result(project, monkeypatch):
 
 def test_show_and_specs_include_adopt(project, monkeypatch, capsys):
     monkeypatch.setattr(
-        "mechanicus.lifecycle.run_tests",
+        "mechanicus.adopt.run_tests",
         lambda code, tests, check, modules=None: (True, "ok"),
     )
     save_generation("greet", "Return hello", "x = 1\n", "t", "c")

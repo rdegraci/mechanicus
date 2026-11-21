@@ -73,7 +73,7 @@ def test_build_command_uses_activity_spinner(project, monkeypatch):
         seen.append(message)
         yield None
 
-    monkeypatch.setattr("mechanicus.plan_build.activity_spinner", fake_spinner)
+    monkeypatch.setattr("mechanicus.build.activity_spinner", fake_spinner)
     write_text_file(project / "lib.module", format_module_text([], "library"))
     build_command(project, "lib")
     assert seen == ["Building"]
@@ -89,12 +89,12 @@ def test_build_command_spinner_stops_when_build_raises(project, monkeypatch):
         finally:
             stopped.append(message)
 
-    monkeypatch.setattr("mechanicus.plan_build.activity_spinner", fake_spinner)
+    monkeypatch.setattr("mechanicus.build.activity_spinner", fake_spinner)
 
     def boom(*_args, **_kwargs):
         raise RuntimeError("build failed")
 
-    monkeypatch.setattr("mechanicus.plan_build._build_one_module", boom)
+    monkeypatch.setattr("mechanicus.build._build_one_module", boom)
     try:
         build_command(project, "lib")
     except RuntimeError:

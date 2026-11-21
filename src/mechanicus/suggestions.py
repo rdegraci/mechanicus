@@ -201,8 +201,68 @@ def get_suggestion(root, index):
     return None, "Unknown suggestion number. Enter /suggestions again."
 
 
+_WALK_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mechanicus",
+    "tests",
+    "build",
+    ".build",
+    "node_modules",
+    "dist",
+}
+
+
+def _append_file_chunk(chunks, root, relative, limit):
+    text, error = read_project_file(root, relative)
+    if error or not text:
+        return False
+    chunks.append(f"--- {relative} ---\n{text[:limit]}")
+    return True
+
+
+def _sample_sources(chunks, root, suffix, limit=12, under=None):
+    """Append up to limit source files with the given suffix."""
+    root_path = Path(root).resolve()
+    base = root_path
+    if under is not None:
+        base = (root_path / under).resolve()
+        try:
+            base.relative_to(root_path)
+        except ValueError:
+            return 0
+        if not base.is_dir():
+            return 0
+    sampled = 0
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = sorted(
+            name for name in dirnames if name not in _WALK_SKIP_DIRS
+        )
+        for name in sorted(filenames):
+            if not name.endswith(suffix):
+                continue
+            path = Path(dirpath) / name
+            try:
+                relative = path.relative_to(root_path).as_posix()
+            except ValueError:
+                continue
+            if relative.endswith(".module"):
+                continue
+            if _append_file_chunk(chunks, root, relative, 6000):
+                sampled += 1
+            if sampled >= limit:
+                return sampled
+    return sampled
+
+
 def _context_block(root):
+    from mechanicus.project import is_swift_package
+    from mechanicus.swift_support import package_dir
+
     chunks = []
+    root_path = Path(root).resolve()
     inventory, count = codebase_inventory(root)
     chunks.append(inventory)
     log.info("suggestions inventory files=%s", count)
@@ -215,49 +275,43 @@ def _context_block(root):
         for record in records:
             lines.append(f"--- {record['name']} ---\n{record['text']}")
         chunks.append("\n\n".join(lines))
-    for relative in ("README.md", "README.txt", "pyproject.toml"):
-        text, error = read_project_file(root, relative)
-        if error or not text:
-            continue
-        chunks.append(f"--- {relative} ---\n{text[:8000]}")
+    preferred = ["README.md", "README.txt", "pyproject.toml", "Package.swift"]
+    if is_swift_package(root):
+        package = package_dir(root)
+        try:
+            package_rel = package.relative_to(root_path).as_posix()
+        except ValueError:
+            package_rel = ""
+        if package_rel and package_rel not in (".", ""):
+            preferred.append(f"{package_rel}/Package.swift")
+            chunks.append(
+                f"Swift package: {package_rel}/ "
+                f"(Package.swift + Sources/; Mechanicus writes XCTest under Tests/)"
+            )
+        else:
+            chunks.append(
+                "Swift package at startup directory "
+                "(Package.swift + Sources/; Mechanicus writes XCTest under Tests/)"
+            )
+    for relative in preferred:
+        _append_file_chunk(chunks, root, relative, 8000)
     modules = find_module_files(root)
     for path in modules[:20]:
         try:
-            relative = path.relative_to(Path(root).resolve()).as_posix()
+            relative = path.relative_to(root_path).as_posix()
         except ValueError:
             continue
-        text, error = read_project_file(root, relative)
-        if error or not text:
-            continue
-        chunks.append(f"--- {relative} ---\n{text[:4000]}")
-    # Sample a few .py sources for bug finding
-    root_path = Path(root).resolve()
-    sampled = 0
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        dirnames[:] = [
-            name
-            for name in dirnames
-            if name not in {".git", ".venv", "venv", "__pycache__", ".mechanicus", "tests"}
-        ]
-        for name in sorted(filenames):
-            if not name.endswith(".py"):
-                continue
-            path = Path(dirpath) / name
-            try:
-                relative = path.relative_to(root_path).as_posix()
-            except ValueError:
-                continue
-            if relative.endswith(".module"):
-                continue
-            text, error = read_project_file(root, relative)
-            if error or not text:
-                continue
-            chunks.append(f"--- {relative} ---\n{text[:6000]}")
-            sampled += 1
-            if sampled >= 12:
-                break
-        if sampled >= 12:
-            break
+        _append_file_chunk(chunks, root, relative, 4000)
+    if is_swift_package(root):
+        package = package_dir(root)
+        try:
+            sources_rel = (package / "Sources").relative_to(root_path).as_posix()
+        except ValueError:
+            sources_rel = "Sources"
+        _sample_sources(chunks, root, ".swift", limit=12, under=sources_rel)
+    else:
+        # Sample a few .py sources for bug finding
+        _sample_sources(chunks, root, ".py", limit=12)
     joined = "\n\n".join(chunks)
     if len(joined) > _MAX_CONTEXT_CHARS:
         return joined[:_MAX_CONTEXT_CHARS] + "\n\n(Truncated.)"

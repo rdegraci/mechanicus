@@ -126,7 +126,7 @@ A generation number starts at 1. `/show` prints the number. Use that number with
 
 `/greenfield` loads `.mechanicus/application.txt` when that file exists. The model does not read the codebase.
 
-`/brownfield` scans text source files under the startup directory. It skips `.git`, `.venv`, `.mechanicus`, dependency trees, binaries, and `.env` files. The model can request file reads while you talk. Mechanicus prints those paths as it reads them. `/brownfield` also loads a saved description when one exists, then can revise it from the scan.
+`/brownfield` scans text source files under the startup directory. It skips `.git`, `.venv`, `.mechanicus`, `.build`, dependency trees, binaries, and `.env` files. It includes `.swift` sources. The model can request file reads while you talk. Mechanicus prints those paths as it reads them. `/brownfield` also loads a saved description when one exists, then can revise it from the scan.
 
 The draft is only the application description. It does not write `.module` files or Python. `/accept` prints the description, saves it through `/plan`, then tells you to enter `/build` or to enter `/greenfield` or `/brownfield` again. `/abort` keeps the previous `application.txt` and modules as they are.
 
@@ -136,7 +136,7 @@ The draft is only the application description. It does not write `.module` files
 2. Read the purpose and the numbered list.
 3. Enter `/brownfield` and a number to draft from that item, or enter `/add` and a number when module files already exist.
 
-`/suggestions` scans the startup tree. It writes `.mechanicus/suggestions.txt`. It does not run `/plan` or `/build`. It prints two sections: suggestions and bugs and issues. Suggestion tags are `feature`, `integrate`, `docs`, or `packaging`. Bug tags are `bug` or `issue`. Numbers continue across both sections, so `/brownfield <n>` and `/add <n>` work for either kind. `/add <n>` refuses when there are no `.module` files. Use `/brownfield <n>` in that case. An unknown number asks you to run `/suggestions` again.
+`/suggestions` scans the startup tree. It writes `.mechanicus/suggestions.txt`. It does not run `/plan` or `/build`. It prints two sections: suggestions and bugs and issues. Suggestion tags are `feature`, `integrate`, `docs`, or `packaging`. Bug tags are `bug` or `issue`. Numbers continue across both sections, so `/brownfield <n>` and `/add <n>` work for either kind. `/add <n>` refuses when there are no `.module` files. Use `/brownfield <n>` in that case. An unknown number asks you to run `/suggestions` again. For a Swift package target, suggestions prefer `Package.swift` and `Sources/**/*.swift` and do not treat `.build` artifacts as the package.
 
 ## Plan
 

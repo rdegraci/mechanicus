@@ -55,6 +55,7 @@ _DRAFT_SKIP_DIRS = {
     ".ruff_cache",
     "dist",
     "build",
+    ".build",
     ".eggs",
     ".idea",
     ".vscode",
@@ -62,6 +63,7 @@ _DRAFT_SKIP_DIRS = {
 _DRAFT_SKIP_SUFFIXES = (".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe", ".bin", ".o", ".a", ".whl", ".zip", ".tar", ".gz", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".woff", ".woff2", ".ttf", ".eot")
 _DRAFT_TEXT_SUFFIXES = {
     ".py",
+    ".swift",
     ".md",
     ".txt",
     ".toml",

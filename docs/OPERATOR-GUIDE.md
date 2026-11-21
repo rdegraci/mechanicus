@@ -35,6 +35,38 @@ You can also run the `mechanicus` command after install. Enter `/quit` to stop.
 
 The chat loop uses prompt_toolkit. Up and Down move through prior lines. Tab completes slash commands. Mechanicus stores that history in `~/Library/Application Support/mechanicus/repl_history` (or under `MECHANICUS_APPDIR` when set).
 
+## Command scripts
+
+To replay slash commands from a text file (for example a recipe an LLM wrote and you edited):
+
+```text
+mechanicus --script path/to/commands.txt
+```
+
+Short form: `mechanicus -s path/to/commands.txt`. From the REPL, enter `/script path/to/commands.txt`.
+
+Script rules:
+
+- One command per line, same grammar as the REPL (`/plan mvp …`, `/build`, `/pin name`, …)
+- Blank lines and `#` comments are ignored
+- Mechanicus prints each command before it runs
+- The script stops on the first error or unknown command
+- Interactive draft commands are refused: `/greenfield`, `/brownfield`, `/accept`, `/abort`
+- Nested `/script` inside a script file is refused
+- `/quit` or `/exit` ends the script successfully
+
+Example:
+
+```text
+# minimum harness
+/target python
+/plan mvp A multi-turn tool loop with a context budget and structured tool results.
+/build
+/modules
+```
+
+After the script finishes (or when the REPL exits), Mechanicus prints the session cost estimate and the log path.
+
 ## Commands
 
 The name is one token. The behavior is the rest of the line. A blank line does nothing.
@@ -79,6 +111,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/test` | Runs on-disk pytest, or `swift test` when the project target is `swift-package`. |
 | `/test <name>` | Runs the on-disk tests for that specification. |
 | `/run <name>` | Loads the adopted Python code and calls `main` when it exists. Not used for Swift packages. |
+| `/script <path>` | Runs slash commands from a text file (same rules as `--script`). |
 | `/cost` | Prints the OpenAI session cost estimate and turn count. |
 | `/logfile` | Prints the path of the session log file. |
 | `/help` | Lists commands and a short description of each. |

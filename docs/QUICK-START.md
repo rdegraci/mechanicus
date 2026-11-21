@@ -32,6 +32,14 @@ The first start creates that file. Mechanicus does not replace it after that.
 
 Mechanicus creates `.mechanicus/seed.db` in that directory. Each project has its own database. The REPL uses prompt_toolkit: Up/Down for history, Tab for slash-command completion.
 
+To run a file of slash commands without the interactive REPL:
+
+```text
+.venv/bin/mechanicus --script path/to/commands.txt
+```
+
+See [OPERATOR-GUIDE.md](OPERATOR-GUIDE.md) for script rules.
+
 ## Make one specification
 
 1. Enter `/spec greet Return the word hello`.

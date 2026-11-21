@@ -39,6 +39,7 @@ from mechanicus.plan_build import (
     build_command,
     find_module_files,
     modules_command,
+    parse_plan_args,
     plan_command,
 )
 from mechanicus.seed_import import import_source
@@ -61,7 +62,7 @@ _COMMAND_HELP = (
         "Plan and build",
         (
             ("/target [python|swift-package] [Name]", "Show or set the project language target."),
-            ("/plan [description]", "Write a .module file for each recommended module."),
+            ("/plan [mvp|full] [description]", "Plan modules; mvp default, full enriches."),
             ("/add <feature|n>", "Add a feature to modules, or apply suggestion n."),
             ("/modules", "List .module files with build status and disk sync."),
             ("/build", "Build each .module file and write the adopted code."),
@@ -236,14 +237,15 @@ def repl():
                 package = parts[2] if len(parts) == 3 else ""
                 target_command(root, parts[1], package)
             elif cmd == "/plan":
-                description = line.split(maxsplit=1)[1].strip() if " " in line else ""
+                rest = line.split(maxsplit=1)[1].strip() if " " in line else ""
+                mode, description = parse_plan_args(rest)
                 if not description:
                     description = load_application_description(root)
                 if not description:
                     log.info("plan refused: no description")
                     print("Enter an application description, or /greenfield or /brownfield.")
                 else:
-                    plan_command(root, description)
+                    plan_command(root, description, mode=mode)
             elif cmd == "/add":
                 feature = line.split(maxsplit=1)[1].strip() if " " in line else ""
                 if not feature:

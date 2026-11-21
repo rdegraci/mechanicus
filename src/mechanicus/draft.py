@@ -261,7 +261,9 @@ def _request_draft(session, opening=False):
         if session.kind == "brownfield"
         else _GREENFIELD_INSTRUCTIONS
     )
-    return _request_generation("\n\n".join(chunks), instructions, DraftTurn)
+    return _request_generation(
+        "\n\n".join(chunks), instructions, DraftTurn, plan=True
+    )
 
 
 def draft_exchange(root, session, user_text=None, opening=False):

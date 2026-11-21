@@ -66,7 +66,7 @@ def load_config():
 def configured_model():
     model = load_config().get("model")
     if not model:
-        return "gpt-4o"
+        return "gpt-6.2-sol"
     return str(model)
 
 
@@ -74,6 +74,22 @@ def configured_reasoning_effort():
     effort = load_config().get("reasoning_effort")
     if not effort:
         return "medium"
+    return str(effort)
+
+
+def configured_plan_model():
+    """Model for planning, draft, and suggestions. Falls back to model."""
+    model = load_config().get("plan_model")
+    if not model:
+        return configured_model()
+    return str(model)
+
+
+def configured_plan_reasoning_effort():
+    """Reasoning effort for planning. Falls back to reasoning_effort."""
+    effort = load_config().get("plan_reasoning_effort")
+    if not effort:
+        return configured_reasoning_effort()
     return str(effort)
 
 
@@ -156,6 +172,10 @@ def start_session_log():
     log.info("database %s", database_path())
     log.info("model %s", configured_model())
     log.info("reasoning effort %s", configured_reasoning_effort())
+    log.info("plan model %s", configured_plan_model())
+    log.info(
+        "plan reasoning effort %s", configured_plan_reasoning_effort()
+    )
     log.info("jev model %s", configured_jev_model())
     try:
         package = configured_package_root()

@@ -1,7 +1,14 @@
 """OpenAI generation for tests, code, plans, and repairs."""
 from openai import OpenAI
 
-from mechanicus.config import configured_model, configured_reasoning_effort, log, startup_dir
+from mechanicus.config import (
+    configured_model,
+    configured_plan_model,
+    configured_plan_reasoning_effort,
+    configured_reasoning_effort,
+    log,
+    startup_dir,
+)
 from mechanicus.harness import _failure_text
 from mechanicus.jev import _plan_state
 from mechanicus.models import (
@@ -9,6 +16,7 @@ from mechanicus.models import (
     BehaviorParts,
     CodeResult,
     CycleRepair,
+    DescriptionEnrichment,
     StrengthenReview,
     TestsResult,
 )
@@ -211,12 +219,7 @@ Output fields:
 - explanation: one short paragraph
 """
 
-_PLAN_INSTRUCTIONS = """You plan the modules of an application for a specification-driven coding system.
-
-Break the description into modules that form a clear architecture.
-Give each module one job.
-When the description has more than one job, return one module for each job.
-Do not put those jobs in one module.
+_PLAN_LAYOUT_RULES = """
 A module may call other modules in this plan. List those names in uses.
 uses is empty when the module calls no other module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
@@ -233,6 +236,47 @@ Do not write implementation code.
 Output fields:
 - modules: a list of name, behavior, and uses
 - explanation: one short paragraph naming the architecture
+"""
+
+_PLAN_INSTRUCTIONS_MVP = f"""You plan the modules of an application for a specification-driven coding system.
+
+Plan an MVP vertical slice: the smallest coherent module graph that runs the core flows in the description.
+Do not expand scope beyond what the description states.
+Break the description into modules that form a clear architecture.
+Give each module one job.
+When the description has more than one job, return one module for each job.
+Do not put those jobs in one module.
+{_PLAN_LAYOUT_RULES}
+"""
+
+_PLAN_INSTRUCTIONS_FULL = f"""You plan the modules of an application for a specification-driven coding system.
+
+Plan a full product decomposition from the description: every major capability, important edge and failure paths, and real uses edges needed to ship.
+Prefer a complete module graph over a thin MVP slice when the description supports it.
+Break the description into modules that form a clear architecture.
+Give each module one job.
+When the description has more than one job, return one module for each job.
+Do not put those jobs in one module.
+Write richer behaviors so tests can demand the feature surface (happy path, empty inputs, and important failures when relevant).
+{_PLAN_LAYOUT_RULES}
+"""
+
+# Back-compat alias used by older references.
+_PLAN_INSTRUCTIONS = _PLAN_INSTRUCTIONS_MVP
+
+_ENRICH_INSTRUCTIONS = """You enrich an application description so a full product plan can be written.
+
+Add only capabilities that are clearly implied by the product the description already describes.
+Do not invent unrelated product fantasy (for example social login for a local CLI tool).
+Prefer concrete, testable requirements: core flows, important failures/empty cases, persistence or export when implied.
+Keep the author's voice. Merge additions into one coherent enriched_description.
+List each addition as a short bullet string in additions.
+If the description is already complete, return it unchanged with an empty additions list.
+
+Output fields:
+- additions: short strings naming each assumed addition (empty when none)
+- enriched_description: the full description to plan from
+- explanation: one short paragraph
 """
 
 _PARTS_INSTRUCTIONS = """You list the behaviors in an application description.
@@ -307,11 +351,20 @@ Output fields:
 - explanation: one short paragraph
 """
 
-def _request_generation(user_input: str, instructions: str, text_format):
-    model = configured_model()
-    effort = configured_reasoning_effort()
+def _request_generation(user_input: str, instructions: str, text_format, *, plan=False):
+    if plan:
+        model = configured_plan_model()
+        effort = configured_plan_reasoning_effort()
+    else:
+        model = configured_model()
+        effort = configured_reasoning_effort()
     client = OpenAI()  # uses OPENAI_API_KEY from the environment or Application Support .env
-    log.info("model request model=%s reasoning_effort=%s", model, effort)
+    log.info(
+        "model request model=%s reasoning_effort=%s plan=%s",
+        model,
+        effort,
+        plan,
+    )
     response = client.responses.parse(
         model=model,
         reasoning={"effort": effort},
@@ -541,6 +594,7 @@ def list_behaviors(description: str) -> BehaviorParts:
         "List each behavior in this description.",
         _PARTS_INSTRUCTIONS,
         BehaviorParts,
+        plan=True,
     )
 
 
@@ -553,18 +607,55 @@ def add_missing_modules(description: str, modules, missing) -> ApplicationPlan:
         "Add one module for each missing behavior.",
         _ADD_INSTRUCTIONS,
         ApplicationPlan,
+        plan=True,
     )
 
 
-def plan_application(description: str) -> ApplicationPlan:
+def enrich_application_description(description: str, gaps=None) -> DescriptionEnrichment:
+    """Propose implied product additions for /plan full."""
+    gap_note = ""
+    labels = [str(item).strip() for item in (gaps or []) if str(item).strip()]
+    if labels:
+        gap_note = (
+            "\n\nBreadth gaps to address if implied by the product:\n"
+            + "\n".join(f"- {label}" for label in labels)
+            + "\n"
+        )
+    return _request_generation(
+        "Application description:\n"
+        f"{description}\n"
+        f"{gap_note}\n"
+        "Enrich this description for a full product plan.\n"
+        "List assumed additions. Return the enriched description.",
+        _ENRICH_INSTRUCTIONS,
+        DescriptionEnrichment,
+        plan=True,
+    )
+
+
+def plan_application(description: str, mode="mvp") -> ApplicationPlan:
+    mode_text = str(mode or "mvp").strip().lower()
+    if mode_text == "full":
+        instructions = _PLAN_INSTRUCTIONS_FULL
+        request = (
+            "Recommend a full product module graph for this application.\n"
+            "Cover major capabilities and important edge cases the description supports.\n"
+        )
+    else:
+        instructions = _PLAN_INSTRUCTIONS_MVP
+        request = (
+            "Recommend an MVP module graph for this application.\n"
+            "Keep the smallest coherent set of modules for the core flows.\n"
+        )
     return _request_generation(
         "Application description:\n"
         f"{description}\n\n"
-        "Recommend the modules for this application.\n"
+        f"{request}"
         "Give each job its own module.\n"
         "A module that calls another module must name it in uses.",
-        _PLAN_INSTRUCTIONS,
+        instructions,
         ApplicationPlan,
+        plan=True,
     )
 
 
@@ -585,6 +676,7 @@ def propose_feature(feature: str, modules, failed=None) -> ApplicationPlan:
         f"{note}",
         _FEATURE_INSTRUCTIONS,
         ApplicationPlan,
+        plan=True,
     )
 
 
@@ -602,6 +694,7 @@ def repair_cycle(members) -> CycleRepair:
         "The new module must not use a listed module.",
         _CYCLE_INSTRUCTIONS,
         CycleRepair,
+        plan=True,
     )
 
 def _repair_request(behavior, code, tests, check, output, modules, required, tests_passed, swift=False, name=None):

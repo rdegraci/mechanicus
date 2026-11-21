@@ -3,8 +3,15 @@
 # ~/Library/Application Support/mechanicus/config.yaml.
 # Later edits of that copy are kept.
 
-model: gpt-4o
+# Coder: tests, implementation, repair, strengthen, refactor.
+model: gpt-6.2-sol
 reasoning_effort: medium
+
+# Planner: /plan, /add, cycle repair, draft, suggestions.
+# Falls back to model / reasoning_effort when unset.
+plan_model: gpt-6.2-astra
+plan_reasoning_effort: high
+
 repair_attempts: 3
 jev_model: jev-1.14.0
 # Relative to the startup directory. Empty means write .py and .module

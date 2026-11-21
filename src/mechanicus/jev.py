@@ -126,6 +126,85 @@ def _plan_state(description, modules, heading="Application description"):
     return "\n\n".join(blocks)
 
 
+_DESCRIPTION_BREADTH = (
+    (
+        "outcomes",
+        "Does this description name the primary user outcomes end-to-end?",
+    ),
+    (
+        "core_flows",
+        "Does this description cover the core create/read/update/delete "
+        "(or domain-equivalent) flows the product needs?",
+    ),
+    (
+        "failures",
+        "Does this description mention important failure, empty-input, "
+        "or permission behavior worth shipping?",
+    ),
+    (
+        "persistence",
+        "If the product keeps data, does this description say how it is "
+        "stored or persisted? Answer yes when persistence is not needed.",
+    ),
+    (
+        "boundaries",
+        "If the product imports, exports, or integrates with other systems, "
+        "does this description name those boundaries? Answer yes when none apply.",
+    ),
+    (
+        "explicit",
+        "Are the essential product capabilities stated explicitly, "
+        "not only implied?",
+    ),
+)
+
+
+def description_breadth(description):
+    """Return gap labels for a thin application description.
+
+    Returns:
+      - [] when the description looks broad enough
+      - a non-empty list of rubric labels when thin
+      - None when Jev is skipped (no key) or the call fails soft
+    Records ok/skipped/failed with gate=description.
+    """
+    text = str(description or "").strip()
+    if not text:
+        note_jev_result(
+            "failed",
+            "empty",
+            "Application description is empty.",
+            gate="description",
+        )
+        return list(label for label, _q in _DESCRIPTION_BREADTH)
+    questions = {}
+    for label, prompt in _DESCRIPTION_BREADTH:
+        questions[label] = {"type": "noul", "instructions": prompt}
+    try:
+        answers = ask_jev(f"Application description:\n{text}", questions)
+    except Exception as error:
+        log.exception("jev description breadth failed")
+        print(f"Error: {error}")
+        _note_jev_failed("error", str(error), gate="description")
+        return None
+    if answers is None:
+        _note_jev_skipped(gate="description")
+        return None
+    gaps = []
+    for label, _prompt in _DESCRIPTION_BREADTH:
+        probability = _noul(answers, label)
+        log.info("jev description %s %.2f", label, probability)
+        if probability < _JEV_YES:
+            gaps.append(label)
+            print(f"Description gap ({probability:.2f}): {label}")
+    detail = f"gaps={','.join(gaps)}" if gaps else ""
+    if gaps:
+        note_jev_result("ok", "thin", detail, gate="description")
+    else:
+        _note_jev_ok(gate="description", detail=detail)
+    return gaps
+
+
 def missing_behaviors(description, modules, parts):
     """Return behaviors no module performs. Return None when the API key is empty."""
     questions = {}

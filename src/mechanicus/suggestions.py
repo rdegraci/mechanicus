@@ -285,6 +285,7 @@ def suggestions_command(root):
             "State the purpose. List improvements. List bugs and issues.",
             _SUGGESTIONS_INSTRUCTIONS,
             SuggestionsResult,
+            plan=True,
         )
     except Exception as error:
         log.exception("suggestions failed")

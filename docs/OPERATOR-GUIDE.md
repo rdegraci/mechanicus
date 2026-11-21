@@ -10,7 +10,7 @@ The startup directory is the current directory when Mechanicus starts. Mechanicu
 
 The application directory is `~/Library/Application Support/mechanicus`. The first start copies `config.yaml` and `.env` into that directory. Mechanicus does not replace a file that is already there.
 
-`config.yaml` holds the writing model, the reasoning effort, and the Jev model. `.env` holds `OPENAI_API_KEY` and `TYPESAFE_API_KEY`. If a key is already in the environment, Mechanicus keeps that value.
+`config.yaml` holds the coder model (`model` / `reasoning_effort`), the planner model (`plan_model` / `plan_reasoning_effort`), and the Jev model. The planner is used for `/plan`, `/add`, cycle repair, draft, and `/suggestions`. If `plan_model` is unset, Mechanicus uses `model`. `.env` holds `OPENAI_API_KEY` and `TYPESAFE_API_KEY`. If a key is already in the environment, Mechanicus keeps that value.
 
 `MECHANICUS_DB` selects a different database file. `MECHANICUS_APPDIR` selects a different application directory.
 
@@ -49,7 +49,9 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/target` | Shows the project target (`python` or `swift-package`). |
 | `/target python` | Sets the project to Python (default when `.mechanicus/project.yaml` is missing). |
 | `/target swift-package [Name]` | Sets a Swift package target and scaffolds `Package.swift` once. |
-| `/plan [description]` | Writes one `.module` file for each recommended module. |
+| `/plan [description]` | MVP plan (default): smallest coherent module graph from the description. |
+| `/plan mvp [description]` | Same as `/plan` (explicit MVP mode). |
+| `/plan full [description]` | Full product plan: Jev breadth check, enrich implied gaps, then plan. |
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/add <n>` | Runs `/add` with suggestion number `n` when `.module` files exist. |
 | `/build` | Builds each `.module` file and writes the adopted code. Prints module status before and after. |
@@ -135,12 +137,17 @@ The draft is only the application description. It does not write `.module` files
 
 ## Plan
 
-1. Enter `/plan` and the application description, or enter `/accept` after a draft.
-2. Read each `.module` file.
-3. Edit a file when the recommendation is wrong.
-4. Enter `/build`.
+1. Enter `/plan` (MVP) or `/plan full` and the application description, or enter `/accept` after a draft (MVP).
+2. For `/plan full`, read the assumed additions and the enriched brief.
+3. Read each `.module` file.
+4. Edit a file when the recommendation is wrong.
+5. Enter `/build`.
 
-`/plan` with no description uses `.mechanicus/application.txt` when that file exists. `/plan` asks the model for the modules. It gives each job its own module. It writes one `.module` file for each module. The file text is that recommendation. `irc/parse.module` is the module `irc/parse`. Mechanicus saves the description in `.mechanicus/application.txt`.
+`/plan` with no description uses `.mechanicus/application.txt` when that file exists. Bare `/plan` and `/plan mvp` plan an MVP vertical slice from the description only. They do not invent extra product scope.
+
+`/plan full` runs a Jev description breadth check (`gate=description`), then asks the planner to add only capabilities clearly implied by the product. It prints assumed additions, saves the enriched brief to `.mechanicus/application.full.txt`, and leaves the original in `.mechanicus/application.txt`. It may enrich once more if the enriched brief is still thin. Then it plans a full product module graph from the enriched brief.
+
+`/plan` asks the model for the modules. It gives each job its own module. It writes one `.module` file for each module. The file text is that recommendation. `irc/parse.module` is the module `irc/parse`. Mechanicus saves the original description in `.mechanicus/application.txt`.
 
 A module that calls another module starts with `uses:` and that module name.
 
@@ -152,7 +159,7 @@ Read a command and join a channel.
 
 Mechanicus does not write Python during `/plan`. It does not replace a `.module` file that is already there. It refuses a path outside the startup directory. It skips a new module name that would shadow a package directory (for example `cli` when `cli/` exists) or that would nest under an existing top-level `.py` module file.
 
-Jev reads the plan after the writing model returns it. Jev checks each behavior in the description. A score below 0.7 means no module performs that behavior. The writing model adds the missing module. Mechanicus writes each recommended module.
+Jev reads the plan after the writing model returns it. Jev checks each behavior in the planning description. A score below 0.7 means no module performs that behavior. The writing model adds the missing module. Mechanicus writes each recommended module.
 
 ## Add
 
@@ -257,7 +264,7 @@ If the specification is pinned, Mechanicus does not replace a module that this p
 3. Save the file.
 4. Start Mechanicus again.
 
-The example file is `src/mechanicus/config.yaml.example`. The default model is `gpt-4o`. The default reasoning effort is `medium`. The default Jev model is `jev-1.14.0`. `/spec` sends the writing model and the reasoning effort from `config.yaml`.
+The example file is `src/mechanicus/config.yaml.example`. The default coder is `gpt-6.2-sol` with `reasoning_effort: medium`. The default planner is `gpt-6.2-astra` with `plan_reasoning_effort: high`. The default Jev model is `jev-1.14.0`. `/spec` and `/build` use the coder model; `/plan` and related commands use the planner model.
 
 `package_root` is a relative path under the startup directory. When it is empty, Mechanicus writes `.py` and `.module` files at the startup directory. When it is set (for example `src/mechanicus`), Mechanicus writes those files under that directory. Spec names stay short (`jev`, not `src/mechanicus/jev`). Tests still go under `tests/` at the startup directory.
 

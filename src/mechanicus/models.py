@@ -38,6 +38,14 @@ class BehaviorParts(BaseModel):
     explanation: str
 
 
+class DescriptionEnrichment(BaseModel):
+    """Assumed product additions for /plan full."""
+
+    additions: list[str] = Field(default_factory=list)
+    enriched_description: str
+    explanation: str = ""
+
+
 class CycleRepair(BaseModel):
     name: str
     behavior: str

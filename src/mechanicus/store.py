@@ -415,3 +415,24 @@ def unpin_spec(name):
         return True
     finally:
         conn.close()
+
+
+def delete_spec(name):
+    """Remove a specification and its artifacts. Refuses pinned specs."""
+    spec = get_spec(name)
+    if spec is None:
+        return False
+    if spec["pinned"]:
+        return False
+    conn = connect()
+    try:
+        with conn:
+            conn.execute("DELETE FROM artifacts WHERE spec_id = ?", (spec["id"],))
+            conn.execute(
+                "UPDATE specs SET deps_fingerprint = NULL WHERE id = ?",
+                (spec["id"],),
+            )
+            conn.execute("DELETE FROM specs WHERE id = ?", (spec["id"],))
+        return True
+    finally:
+        conn.close()

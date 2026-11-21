@@ -66,6 +66,12 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/revert <name> <generation> --db-only` | Adopts an earlier generation without writing disk. |
 | `/generate` | Writes every adopted specification and its tests. |
 | `/generate <name>` | Writes that adopted specification and its tests. |
+| `/clean` | Prints `/clean` help. Does not delete anything. |
+| `/clean build` | Deletes the Swift package `.build` directory only. |
+| `/clean orphans` | Dry-run list of refused `Tests` / `*/Tests` plan debris and matching DB specs. |
+| `/clean orphans --apply` | Removes those `.module` files and matching unpinned DB specs. |
+| `/clean disk` | Rewrites adopted files from the DB; stubs unadopted Swift modules from `.module` files. |
+| `/clean all` | Runs `build`, then `orphans --apply`, then `disk`. |
 | `/test` | Runs on-disk pytest, or `swift test` when the project target is `swift-package`. |
 | `/test <name>` | Runs the on-disk tests for that specification. |
 | `/run <name>` | Loads the adopted Python code and calls `main` when it exists. Not used for Swift packages. |
@@ -216,6 +222,16 @@ Each `/adopt` stores a last result on the specification: `ok` or `failed`, a rea
 `/generate` also writes the tests under `tests/`. `greet` writes `tests/test_greet.py`. `pkg/mod` writes `tests/pkg/test_pkg_mod.py`. The file basename includes the module path so plain pytest can collect nested tests without import-mode flags. The written tests import that module as `impl`. A local name in the test stays as it is. The check remains in the project database.
 
 `/generate` with no name writes every adopted specification.
+
+## Clean
+
+1. Enter `/clean` to read the modes. Bare `/clean` does not delete anything.
+2. Enter `/clean build` to remove the Swift package `.build` directory.
+3. Enter `/clean orphans` to list refused `Tests` / `*/Tests` `.module` files and matching DB specs. Enter `/clean orphans --apply` to remove them. Pinned specs stay.
+4. Enter `/clean disk` to rewrite adopted files from the database and stub unadopted Swift modules from remaining `.module` files.
+5. Enter `/clean all` to run `build`, then `orphans --apply`, then `disk`.
+
+`/clean` does not wipe the database, delete pinned specifications, or remove ordinary logic modules.
 
 ## Test
 

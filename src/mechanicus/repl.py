@@ -20,6 +20,7 @@ from mechanicus.draft import (
     start_brownfield,
     start_greenfield,
 )
+from mechanicus.clean import clean_command
 from mechanicus.lifecycle import (
     adopt_spec,
     generate_command,
@@ -85,6 +86,7 @@ _COMMAND_HELP = (
         (
             ("/import <name>", "Import package source as adopted and pinned."),
             ("/generate [name]", "Write adopted code and tests into the startup directory."),
+            ("/clean [build|orphans|disk|all]", "Safe cleanup; no args prints help."),
             ("/test [name]", "Run on-disk pytest or swift test for the project target."),
             ("/run <name>", "Run the adopted code for a Python spec."),
         ),
@@ -312,6 +314,17 @@ def repl():
                 generate_command(root)
             elif cmd == "/generate" and len(parts) == 2:
                 generate_command(root, parts[1])
+            elif cmd == "/clean" and len(parts) == 1:
+                clean_command(root)
+            elif cmd == "/clean" and len(parts) in (2, 3):
+                apply = False
+                if len(parts) == 3:
+                    if parts[2] != "--apply":
+                        log.info("clean refused: unknown option %s", parts[2])
+                        print("Unknown option. Use --apply only with /clean orphans.")
+                        continue
+                    apply = True
+                clean_command(root, parts[1], apply=apply)
             elif cmd == "/test" and len(parts) == 1:
                 test_command(root)
             elif cmd == "/test" and len(parts) == 2:

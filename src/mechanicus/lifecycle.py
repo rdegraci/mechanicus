@@ -471,6 +471,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             spec_id, generation = save_generation(
                 name, behavior, code_text, new_tests, new_check
             )
+            _persist_last_jev(name)
         except Exception as error:
             log.exception("adopt code after test rewrite failed for %s", name)
             print(f"Error: {error}")
@@ -1159,6 +1160,51 @@ def _persist_last_jev(name):
     return recorded
 
 
+def review_adopted_uses(name, required=None, swift=None):
+    """Run test-gate Jev on the adopted suite for uses: deps.
+
+    Returns:
+      - [] when coverage looks fine or required is empty
+      - a non-empty list of (label, probability) when weak
+      - None when skipped (no key / no adopted suite) or Jev errored soft
+    Persists ok/skipped/failed onto the specification when Jev runs.
+    """
+    required = list(required or [])
+    if not required:
+        return []
+    spec = get_spec(name)
+    if spec is None:
+        return None
+    tests = get_adopted_artifact(spec["id"], "tests")
+    check = get_adopted_artifact(spec["id"], "check")
+    if (
+        tests is None
+        or check is None
+        or not str(tests["content"]).strip()
+        or not str(check["content"]).strip()
+    ):
+        return None
+    root = startup_dir()
+    if swift is None:
+        swift = is_swift_package(root)
+    clear_last_jev()
+    try:
+        weak = weak_call_tests(
+            spec["behavior"],
+            tests["content"],
+            check["content"],
+            required,
+            swift=swift,
+        )
+    except Exception as error:
+        log.exception("jev adopted uses failed for %s", name)
+        print(f"Error: {error}")
+        note_jev_result("failed", "error", str(error), gate="tests")
+        weak = None
+    _persist_last_jev(name)
+    return weak
+
+
 def tests_until_red(behavior, modules=None, required=None, name=None):
     """Write tests that fail against an empty module. Return None when they do not."""
     required = list(required or [])
@@ -1228,10 +1274,12 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
                 log.info("pytest output:\n%s", _failure_text(output))
                 if kind != "red":
                     print(f"Tests are not red ({reason}).")
-        if kind == "red" and required and not jev_checked and not swift:
+        if kind == "red" and required and not jev_checked:
             jev_checked = True
             try:
-                weak = weak_call_tests(behavior, tests, check, required)
+                weak = weak_call_tests(
+                    behavior, tests, check, required, swift=swift
+                )
             except Exception as error:
                 log.exception("jev tests failed")
                 print(f"Error: {error}")
@@ -1243,7 +1291,7 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
                 )
                 print(f"Tests do not require these calls: {details}.")
                 output = (
-                    "These tests do not fail when the implementation never calls: "
+                    "These tests do not fail when the implementation never uses: "
                     + ", ".join(dep for dep, _probability in weak)
                     + "."
                 )

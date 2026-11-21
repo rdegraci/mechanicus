@@ -23,6 +23,7 @@ from mechanicus.jev import (
 from mechanicus.lifecycle import (
     adopt_spec,
     disk_sync_status,
+    review_adopted_uses,
     spec_command,
     strengthen_adopted,
     write_adopted,
@@ -882,14 +883,30 @@ def build_one(root, record):
     same = spec is not None and str(spec["behavior"]).strip() == canonical
     has_adopted = adopted is not None and str(adopted["content"]).strip()
     deps_ok = deps_are_current(spec_name, required)
+    force_rebuild = False
     if same and has_adopted and deps_ok:
         log.info("build writes adopted %s", spec_name)
         print(f"'{spec_name}' is already adopted.")
-        if write_adopted(root, spec_name):
+        if not write_adopted(root, spec_name):
+            return "failed", "already adopted; disk was not updated"
+        if required:
+            print(f"Checking uses: coverage for '{spec_name}'...")
+            weak = review_adopted_uses(spec_name, required)
+            if weak:
+                details = ", ".join(
+                    f"{dep} ({probability:.2f})" for dep, probability in weak
+                )
+                print(
+                    f"Tests do not require these uses: {details}. Rebuilding..."
+                )
+                log.info("build force rebuild weak uses %s: %s", spec_name, details)
+                force_rebuild = True
+            else:
+                return "unchanged", "already adopted"
+        else:
             return "unchanged", "already adopted"
-        return "failed", "already adopted; disk was not updated"
     rebuilt_upstream = False
-    if same and has_adopted and not deps_ok:
+    if same and has_adopted and not deps_ok and not force_rebuild:
         rebuilt_upstream = True
         log.info("build re-adopts stale %s", spec_name)
         print(f"'{spec_name}' has upstream changes. Re-adopting...")
@@ -917,7 +934,7 @@ def build_one(root, record):
         if spec is None or str(spec["behavior"]).strip() != canonical:
             print(f"'{spec_name}' was not saved.")
             return "failed", "was not saved"
-    elif not same:
+    elif not same or force_rebuild:
         print(f"Building {spec_name}...")
         spec_command(spec_name, prose, modules, canonical, required)
         spec = get_spec(spec_name)

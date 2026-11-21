@@ -1,12 +1,18 @@
 """Fixture tests for partial /build (ML8)."""
 from mechanicus.plan_build import (
     build_command,
+    build_one,
     format_module_text,
     module_records,
     module_statuses,
 )
 from mechanicus.paths import write_text_file
-from mechanicus.store import mark_adopted, save_generation
+from mechanicus.store import (
+    get_spec,
+    mark_adopted,
+    record_deps_fingerprint,
+    save_generation,
+)
 
 
 def _write_module(root, name, uses, behavior="do work"):
@@ -77,3 +83,84 @@ def test_full_build_still_walks_graph(project, capsys):
     assert "modules before build" in out
     assert "modules after build" in out
     assert (project / "lib.py").is_file()
+
+
+def test_unchanged_with_uses_records_jev_skipped(project, monkeypatch, capsys):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    _write_module(project, "lib", [], "library")
+    lib_text = module_records(project)[0]["text"]
+    lib_id, lib_gen = save_generation(
+        "lib",
+        lib_text,
+        "VALUE = 1\n",
+        "import impl\n\ndef test_lib():\n    assert impl.VALUE == 1\n",
+        "import impl\n\ndef test_check():\n    assert impl.VALUE\n",
+    )
+    mark_adopted(lib_id, lib_gen)
+    record_deps_fingerprint("lib", [])
+    _write_module(project, "app", ["lib"], "application uses lib")
+    app_record = next(r for r in module_records(project) if r["name"] == "app")
+    app_id, app_gen = save_generation(
+        "app",
+        app_record["text"],
+        "import lib\n\ndef run():\n    return lib.VALUE\n",
+        "import impl\n\ndef test_app():\n    assert impl.run() == 1\n",
+        "import impl\n\ndef test_check():\n    assert impl.run()\n",
+    )
+    mark_adopted(app_id, app_gen)
+    record_deps_fingerprint("app", ["lib"])
+    status, reason = build_one(project, app_record)
+    assert status == "unchanged"
+    assert reason == "already adopted"
+    spec = get_spec("app")
+    assert spec["jev_status"] == "skipped"
+    assert spec["jev_gate"] == "tests"
+    out = capsys.readouterr().out
+    assert "Checking uses:" in out
+
+
+def test_unchanged_weak_uses_forces_rebuild(project, monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    _write_module(project, "lib", [], "library")
+    lib_text = module_records(project)[0]["text"]
+    lib_id, lib_gen = save_generation(
+        "lib",
+        lib_text,
+        "VALUE = 1\n",
+        "import impl\n\ndef test_lib():\n    assert impl.VALUE == 1\n",
+        "import impl\n\ndef test_check():\n    assert impl.VALUE\n",
+    )
+    mark_adopted(lib_id, lib_gen)
+    record_deps_fingerprint("lib", [])
+    _write_module(project, "app", ["lib"], "application uses lib")
+    app_record = next(r for r in module_records(project) if r["name"] == "app")
+    app_id, app_gen = save_generation(
+        "app",
+        app_record["text"],
+        "def run():\n    return 1\n",
+        "import impl\n\ndef test_app():\n    assert impl.run() == 1\n",
+        "import impl\n\ndef test_check():\n    assert impl.run()\n",
+    )
+    mark_adopted(app_id, app_gen)
+    record_deps_fingerprint("app", ["lib"])
+    monkeypatch.setattr(
+        "mechanicus.plan_build.review_adopted_uses",
+        lambda name, required=None, swift=None: [("lib", 0.1)],
+    )
+    called = {}
+
+    def fake_spec(name, behavior, modules=None, record=None, required=None):
+        called["name"] = name
+
+    monkeypatch.setattr("mechanicus.plan_build.spec_command", fake_spec)
+    monkeypatch.setattr(
+        "mechanicus.plan_build.adopt_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "mechanicus.plan_build.strengthen_adopted",
+        lambda *args, **kwargs: "adequate",
+    )
+    status, reason = build_one(project, app_record)
+    assert called.get("name") == "app"
+    assert status == "built"

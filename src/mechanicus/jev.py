@@ -173,30 +173,45 @@ def feature_score(feature, modules):
     return probability
 
 
-def weak_call_tests(behavior, tests, check, required):
-    """Return uses modules the tests do not require. Return None when the key is empty."""
+def _dependency_label(spec_name, swift=False):
+    """Human label for a uses: dependency in Jev questions."""
+    if swift:
+        from mechanicus.swift_support import swift_type_name
+
+        return swift_type_name(spec_name) or str(spec_name)
+    return module_import(spec_name) or str(spec_name)
+
+
+def weak_call_tests(behavior, tests, check, required, swift=False):
+    """Return uses deps the tests do not require. Return None when the key is empty.
+
+    For Swift packages, questions name adopted types (swift_type_name), not
+    Python import paths. Same gate threshold and ok/skipped/failed recording.
+    """
     questions = {}
     labels = []
     for index, spec_name in enumerate(required):
-        imported = module_import(spec_name) or spec_name
+        label = _dependency_label(spec_name, swift=swift)
+        kind = "type" if swift else "module"
         questions[f"call-{index}"] = {
             "type": "noul",
             "instructions": (
-                f"Do these tests fail when the implementation never calls {imported}?"
+                f"Do these tests fail when the implementation never uses "
+                f"the required {kind} {label}?"
             ),
         }
-        labels.append(imported)
+        labels.append(label)
     state = f"Behavior:\n{behavior}\n\nTests:\n{tests}\n\nCheck:\n{check}"
     answers = ask_jev(state, questions)
     if answers is None:
         _note_jev_skipped(gate="tests")
         return None
     weak = []
-    for index, imported in enumerate(labels):
+    for index, label in enumerate(labels):
         probability = _noul(answers, f"call-{index}")
-        log.info("jev tests %s %.2f", imported, probability)
+        log.info("jev tests %s %.2f", label, probability)
         if probability < _JEV_YES:
-            weak.append((imported, probability))
+            weak.append((label, probability))
     detail = ""
     if weak:
         detail = "weak=" + ",".join(name for name, _probability in weak)

@@ -70,6 +70,33 @@ def test_weak_call_tests_skipped_without_key(project, monkeypatch, capsys):
     assert "Jev: skipped" in out
 
 
+def test_weak_call_tests_swift_uses_type_names(project, monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    seen = {}
+
+    def fake_ask(state, questions):
+        seen["questions"] = questions
+        return {key: {"noul": 0.9} for key in questions}
+
+    monkeypatch.setattr("mechanicus.jev.ask_jev", fake_ask)
+    clear_last_jev()
+    weak = weak_call_tests(
+        "beh",
+        "import XCTest\n",
+        "import XCTest\n",
+        ["SFCore/Domain", "SFExport/ExportService"],
+        swift=True,
+    )
+    assert weak == []
+    instructions = " ".join(
+        item["instructions"] for item in seen["questions"].values()
+    )
+    assert "SFCoreDomain" in instructions
+    assert "SFExportExportService" in instructions
+    assert "required type" in instructions
+    assert last_jev_result()["status"] == "ok"
+
+
 def test_spec_persists_jev_skipped(project, monkeypatch, capsys):
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.setattr(

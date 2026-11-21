@@ -135,8 +135,9 @@ def test_tests_until_red_uses_repair_forwards_deps(monkeypatch):
         )
         return _sample_result()
 
-    def fake_weak(behavior, tests, check, required):
+    def fake_weak(behavior, tests, check, required, swift=False):
         calls["jev"] += 1
+        calls["swift"] = swift
         if calls["jev"] == 1:
             return [("lib", 0.2)]
         return []
@@ -163,3 +164,58 @@ def test_tests_until_red_uses_repair_forwards_deps(monkeypatch):
     assert repairs[0]["kind"] == "uses"
     assert repairs[0]["modules"] == modules
     assert repairs[0]["required"] == ["lib"]
+    assert calls.get("swift") is False
+
+
+def test_tests_until_red_swift_forwards_jev_swift_flag(project, monkeypatch):
+    from mechanicus.project import TARGET_SWIFT_PACKAGE, save_project
+
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="DemoKit")
+    seen = {}
+
+    def fake_generate(behavior, modules=None, required=None, name=None):
+        return _sample_result()
+
+    def fake_weak(behavior, tests, check, required, swift=False):
+        seen["swift"] = swift
+        seen["required"] = required
+        return []
+
+    monkeypatch.setattr(lifecycle, "generate_tests", fake_generate)
+    monkeypatch.setattr(lifecycle, "weak_call_tests", fake_weak)
+    monkeypatch.setattr(
+        lifecycle,
+        "sniff_swift_test_sources",
+        lambda tests, check, root, name, behavior=None: None,
+    )
+    monkeypatch.setattr(lifecycle, "swift_toolchain_available", lambda: True)
+    monkeypatch.setattr(
+        lifecycle,
+        "write_swift_artifacts",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "run_swift_tests",
+        lambda root, name=None: (False, "XCTAssert failed"),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "classify_swift_before_code",
+        lambda passed, output: ("red", "red"),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "read_swift_artifacts",
+        lambda root, name: None,
+    )
+    modules = [("SFCore/Domain", "public struct SFCoreDomain {}\n")]
+    written = lifecycle.tests_until_red(
+        "use domain",
+        modules=modules,
+        required=["SFCore/Domain"],
+        name="SFExport/ExportService",
+    )
+    assert written is not None
+    assert seen.get("swift") is True
+    assert seen.get("required") == ["SFCore/Domain"]

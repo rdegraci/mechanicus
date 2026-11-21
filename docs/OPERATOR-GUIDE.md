@@ -92,7 +92,9 @@ Mechanicus starts in command mode. When `.mechanicus/application.txt` or a `.mod
 
 Mechanicus runs the tests against an empty module. The tests must fail in a way that proves the behavior is missing. Mechanicus rejects weak tests: missing `impl` use, trivial asserts such as `assert False`, mixed pass/fail runs, and failures that do not involve `impl`. Mechanicus repairs the tests when they pass or when they are broken. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. Mechanicus does not save a generation when the tests do not go red.
 
-When a module names another module in `uses:`, Jev reads the tests. Jev asks whether the tests fail when the code never calls that module. A score below 0.7 sends the tests to the writing model once. Mechanicus keeps those tests. Each Jev check records `ok`, `skipped` (no `TYPESAFE_API_KEY`), or `failed` (API or network error). `/show` and `/specs` print that result for the specification. A new saved generation clears it until the next Jev check on that name.
+When a module names another module in `uses:`, Jev reads the tests. Jev asks whether the tests fail when the code never uses that dependency (Python import path, or Swift type name for `swift-package` projects). A score below 0.7 sends the tests to the writing model once. Mechanicus keeps those tests. Each Jev check records `ok`, `skipped` (no `TYPESAFE_API_KEY`), or `failed` (API or network error). `/show` and `/specs` print that result for the specification. A new saved generation clears it until the next Jev check on that name. Modules with no `uses:` stay `jev=none`.
+
+`/build` also runs that uses: check when a module is already adopted and unchanged. Weak coverage forces a rebuild. Without `TYPESAFE_API_KEY`, the check records `jev=skipped` and the module stays unchanged. Leaf modules with no `uses:` stay `jev=none`.
 
 Mechanicus does not adopt the new generation yet. Mechanicus does not replace a pinned specification. It does not call the model for that name.
 

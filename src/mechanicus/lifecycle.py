@@ -526,16 +526,19 @@ def test_command(root, name=None):
             return False
         target = destination.relative_to(root).as_posix()
         print(f"Running pytest for {target}...")
+    from mechanicus.activity import activity_spinner
+
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(root) if not existing else f"{root}{os.pathsep}{existing}"
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", target, "-q"],
-        cwd=root,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    with activity_spinner("Running tests"):
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", target, "-q"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
     if result.stdout:
         print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
     if result.stderr:
@@ -750,6 +753,13 @@ def target_command(root, target=None, package_name=""):
 
 
 def spec_command(name, behavior, modules=None, record=None, required=None):
+    from mechanicus.activity import activity_spinner
+
+    with activity_spinner("Generating"):
+        return _spec_command_body(name, behavior, modules, record, required)
+
+
+def _spec_command_body(name, behavior, modules=None, record=None, required=None):
     log.info("spec %s behavior %s", name, behavior)
     if refuse_bootstrap(name, "regenerated"):
         return

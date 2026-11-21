@@ -352,6 +352,8 @@ Output fields:
 """
 
 def _request_generation(user_input: str, instructions: str, text_format, *, plan=False):
+    from mechanicus.activity import activity_spinner
+
     if plan:
         model = configured_plan_model()
         effort = configured_plan_reasoning_effort()
@@ -365,14 +367,18 @@ def _request_generation(user_input: str, instructions: str, text_format, *, plan
         effort,
         plan,
     )
-    response = client.responses.parse(
-        model=model,
-        reasoning={"effort": effort},
-        instructions=instructions,
-        input=user_input,
-        text_format=text_format,
-    )
+    with activity_spinner("Calling model"):
+        response = client.responses.parse(
+            model=model,
+            reasoning={"effort": effort},
+            instructions=instructions,
+            input=user_input,
+            text_format=text_format,
+        )
     log.info("model response received")
+    from mechanicus.cost import record_openai_response
+
+    record_openai_response(model, response)
     return response.output_parsed
 
 

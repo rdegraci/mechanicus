@@ -275,22 +275,25 @@ def _print_section(title, items):
 
 
 def suggestions_command(root):
+    from mechanicus.activity import activity_spinner
+
     log.info("suggestions")
     print("Analyzing project...")
-    context = _context_block(root)
-    try:
-        result = _request_generation(
-            "Codebase context:\n"
-            f"{context}\n\n"
-            "State the purpose. List improvements. List bugs and issues.",
-            _SUGGESTIONS_INSTRUCTIONS,
-            SuggestionsResult,
-            plan=True,
-        )
-    except Exception as error:
-        log.exception("suggestions failed")
-        print(f"Error: {error}")
-        return
+    with activity_spinner("Analyzing"):
+        context = _context_block(root)
+        try:
+            result = _request_generation(
+                "Codebase context:\n"
+                f"{context}\n\n"
+                "State the purpose. List improvements. List bugs and issues.",
+                _SUGGESTIONS_INSTRUCTIONS,
+                SuggestionsResult,
+                plan=True,
+            )
+        except Exception as error:
+            log.exception("suggestions failed")
+            print(f"Error: {error}")
+            return
     payload = _store_items(result.purpose, result.suggestions, result.bugs)
     if not payload["suggestions"]:
         log.info("suggestions empty")

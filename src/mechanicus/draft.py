@@ -267,6 +267,13 @@ def _request_draft(session, opening=False):
 
 
 def draft_exchange(root, session, user_text=None, opening=False):
+    from mechanicus.activity import activity_spinner
+
+    with activity_spinner("Thinking"):
+        return _draft_exchange_body(root, session, user_text, opening)
+
+
+def _draft_exchange_body(root, session, user_text=None, opening=False):
     if user_text:
         session.transcript.append(f"User: {user_text}")
         opening = False

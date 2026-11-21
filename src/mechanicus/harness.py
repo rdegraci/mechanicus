@@ -535,6 +535,8 @@ def _invents_impl_helpers(source):
 
 
 def _run_pytest_harness(code: str, tests: str, check: str, modules=None) -> tuple[bool, str]:
+    from mechanicus.activity import activity_spinner
+
     with tempfile.TemporaryDirectory() as tmp:
         _write_dependency_modules(tmp, modules)
         with open(os.path.join(tmp, "impl.py"), "w") as handle:
@@ -543,12 +545,13 @@ def _run_pytest_harness(code: str, tests: str, check: str, modules=None) -> tupl
             handle.write(prepare_tests(tests))
         with open(os.path.join(tmp, "test_check.py"), "w") as handle:
             handle.write(prepare_tests(check))
-        result = subprocess.run(
-            [sys.executable, "-m", "pytest", "test_impl.py", "test_check.py", "-q"],
-            cwd=tmp,
-            capture_output=True,
-            text=True,
-        )
+        with activity_spinner("Running tests"):
+            result = subprocess.run(
+                [sys.executable, "-m", "pytest", "test_impl.py", "test_check.py", "-q"],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+            )
         print(result.stdout)
         if result.stderr:
             print(result.stderr)

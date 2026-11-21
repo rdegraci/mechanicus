@@ -16,6 +16,8 @@ The application directory is `~/Library/Application Support/mechanicus`. The fir
 
 Each start writes a new file in `~/Library/Application Support/mechanicus/logs`. `/logfile` prints that path. Mechanicus prints the path again when it exits.
 
+After each OpenAI model call, Mechanicus prints a one-line cost estimate from response token usage and published list prices, for example `[turn $0.055 · session $0.275]`. `/cost` prints the session estimate and OpenAI turn count. On `/quit` or `/exit`, Mechanicus prints `Session estimate $…`. Jev calls are not included.
+
 ## Project target
 
 The language target is per project in `.mechanicus/project.yaml`. When that file is missing, Mechanicus uses Python.
@@ -77,6 +79,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/test` | Runs on-disk pytest, or `swift test` when the project target is `swift-package`. |
 | `/test <name>` | Runs the on-disk tests for that specification. |
 | `/run <name>` | Loads the adopted Python code and calls `main` when it exists. Not used for Swift packages. |
+| `/cost` | Prints the OpenAI session cost estimate and turn count. |
 | `/logfile` | Prints the path of the session log file. |
 | `/help` | Lists commands and a short description of each. |
 | `/quit` | Stops Mechanicus. |

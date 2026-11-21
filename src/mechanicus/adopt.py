@@ -61,6 +61,13 @@ def _note_adopt(name, status, reason, detail="", generation=None):
 
 
 def adopt_spec(name, modules=None, required=None, allow_longer=False):
+    from mechanicus.activity import activity_spinner
+
+    with activity_spinner("Adopting"):
+        return _adopt_spec_body(name, modules, required, allow_longer)
+
+
+def _adopt_spec_body(name, modules=None, required=None, allow_longer=False):
     log.info("adopt %s", name)
     if modules is None:
         from mechanicus.plan_build import dependency_modules

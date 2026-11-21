@@ -22,6 +22,7 @@ from mechanicus.draft import (
 )
 from mechanicus.clean import clean_command
 from mechanicus.console import blank
+from mechanicus.cost import print_cost_status, print_session_estimate, reset_session_cost
 from mechanicus.lifecycle import (
     adopt_spec,
     generate_command,
@@ -96,6 +97,7 @@ _COMMAND_HELP = (
     (
         "Session",
         (
+            ("/cost", "Print the OpenAI session cost estimate and turn count."),
             ("/logfile", "Print the path to the session log file."),
             ("/help", "List commands and a short description of each."),
             ("/quit", "Exit the REPL."),
@@ -155,6 +157,7 @@ def repl():
     root = startup_dir()
     ensure_app_files()
     init_db()
+    reset_session_cost()
     log_path = start_session_log()
     prompt = _make_prompt_session()
     draft = None
@@ -338,6 +341,8 @@ def repl():
                 test_command(root, parts[1])
             elif cmd == "/run" and len(parts) == 2:
                 run_adopted(parts[1])
+            elif cmd == "/cost" and len(parts) == 1:
+                print_cost_status()
             elif cmd == "/logfile" and len(parts) == 1:
                 print(f"Log file: {log_path}")
             elif cmd == "/help" and len(parts) == 1:
@@ -347,5 +352,6 @@ def repl():
                 print("Unknown command. Enter /help for the command list.")
     finally:
         close_session_log()
+        print_session_estimate()
         print(f"Log file: {log_path}")
 

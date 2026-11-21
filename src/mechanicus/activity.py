@@ -5,6 +5,7 @@ from contextlib import contextmanager
 
 
 _FRAMES = ("|", "/", "-", "\\")
+_ACTIVE = []
 
 
 class _SpinnerAwareStream:
@@ -44,6 +45,13 @@ class ActivitySpinner:
         self._lock = threading.Lock()
         self._visible = False
         self._frame = 0
+
+    def set_message(self, message):
+        """Change the label shown next to the spinner."""
+        with self._lock:
+            self.message = message
+            if self.enabled and self._visible:
+                self._draw()
 
     def start(self):
         if not self.enabled:
@@ -86,13 +94,32 @@ class ActivitySpinner:
             self._stop.wait(self.interval)
 
 
+def current_spinner():
+    """Return the active spinner, or None."""
+    return _ACTIVE[-1] if _ACTIVE else None
+
+
 @contextmanager
-def activity_spinner(message="Building", stream=None, interval=0.1, enabled=None):
+def activity_spinner(message="Working", stream=None, interval=0.1, enabled=None):
     """Show a spinner until the block ends, success or failure.
 
+    Nested calls reuse the outer spinner and temporarily change its message.
     Stdout writes clear the spinner line so status prints stay readable.
     When the stream is not a TTY, the spinner is a no-op unless enabled=True.
     """
+    if _ACTIVE:
+        outer = _ACTIVE[-1]
+        previous = outer.message
+        outer.set_message(message)
+        _ACTIVE.append(outer)
+        try:
+            yield outer
+        finally:
+            _ACTIVE.pop()
+            if _ACTIVE:
+                outer.set_message(previous)
+        return
+
     spinner = ActivitySpinner(
         message=message,
         stream=stream,
@@ -103,8 +130,11 @@ def activity_spinner(message="Building", stream=None, interval=0.1, enabled=None
     if spinner.enabled:
         sys.stdout = _SpinnerAwareStream(real_stdout, spinner)
         spinner.start()
+    _ACTIVE.append(spinner)
     try:
         yield spinner
     finally:
         spinner.stop()
         sys.stdout = real_stdout
+        if _ACTIVE and _ACTIVE[-1] is spinner:
+            _ACTIVE.pop()

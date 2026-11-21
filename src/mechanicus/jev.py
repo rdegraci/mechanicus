@@ -80,6 +80,8 @@ def _noul(answers, key):
 
 def ask_jev(state, questions):
     """Ask Jev yes-or-no questions. Return None when the API key is empty."""
+    from mechanicus.activity import activity_spinner
+
     key = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if not key:
         return None
@@ -102,8 +104,9 @@ def ask_jev(state, questions):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            body = json.loads(response.read().decode("utf-8"))
+        with activity_spinner("Asking Jev"):
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:500]
         raise RuntimeError(f"Jev request failed ({error.code}). {detail}") from error

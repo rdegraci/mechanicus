@@ -336,6 +336,8 @@ def classify_swift_before_code(passed, output):
 
 def run_swift_tests(root, name=None):
     """Run `swift test` in the package directory. Optional filter by type name."""
+    from mechanicus.activity import activity_spinner
+
     base = package_dir(root)
     if not (base / "Package.swift").is_file():
         return False, f"No Package.swift in {base}"
@@ -346,13 +348,14 @@ def run_swift_tests(root, name=None):
             command.extend(["--filter", type_name])
     log.info("swift test %s", " ".join(command))
     env = os.environ.copy()
-    result = subprocess.run(
-        command,
-        cwd=base,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    with activity_spinner("Running tests"):
+        result = subprocess.run(
+            command,
+            cwd=base,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
     output = (result.stdout or "") + (result.stderr or "")
     if result.returncode == 0:
         return True, output

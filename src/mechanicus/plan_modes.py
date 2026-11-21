@@ -162,11 +162,18 @@ def _prepare_full_description(description):
     return enriched, additions
 
 def plan_command(root, description, mode="mvp"):
+    from mechanicus.activity import activity_spinner
+
     mode_text = str(mode or "mvp").strip().lower()
     if mode_text not in ("mvp", "full"):
         print(f"Unknown /plan mode '{mode}'. Use mvp or full.")
         log.info("plan refused: unknown mode %s", mode)
         return
+    with activity_spinner("Planning"):
+        _plan_command_body(root, description, mode_text)
+
+
+def _plan_command_body(root, description, mode_text):
     original = str(description).strip()
     log.info("plan mode=%s %s", mode_text, original)
     planning = original

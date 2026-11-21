@@ -1,11 +1,13 @@
 """ /plan mvp vs full: parse, enrich path, description Jev gate."""
+from types import SimpleNamespace
+
 from mechanicus.jev import (
     clear_last_jev,
     description_breadth,
     last_jev_result,
 )
 from mechanicus.models import ApplicationPlan, DescriptionEnrichment, PlannedModule
-from mechanicus.plan_modes import parse_plan_args, plan_command
+from mechanicus.plan_modes import _cover_plan, parse_plan_args, plan_command
 
 
 def test_parse_plan_args_modes():
@@ -139,3 +141,44 @@ def test_plan_full_enriches_and_saves_full_brief(project, monkeypatch, capsys):
     assert "Planning full product" in out
     assert "Assumed additions:" in out
     assert "application.full.txt" in out
+
+
+def test_cover_plan_returns_original_plus_added_modules(project, monkeypatch, capsys):
+    """Regression: after Jev gaps, cover must return merged modules (not None)."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "mechanicus.plan_modes.list_behaviors",
+        lambda description: SimpleNamespace(parts=["Keep tools", "Propose tools"]),
+    )
+    monkeypatch.setattr(
+        "mechanicus.plan_modes.missing_behaviors",
+        lambda description, normalized, parts: ["Propose tools"],
+    )
+    monkeypatch.setattr(
+        "mechanicus.plan_modes.add_missing_modules",
+        lambda description, modules, missing: ApplicationPlan(
+            modules=[
+                PlannedModule(
+                    name="propose",
+                    behavior="Propose one or more tools",
+                    uses=[],
+                ),
+            ],
+            explanation="Added propose module.",
+        ),
+    )
+    existing = [
+        {
+            "name": "loop",
+            "path": project / "loop.module",
+            "relative": "loop.module",
+            "behavior": "Run the agent loop",
+            "uses": [],
+            "exists": False,
+        }
+    ]
+    merged = _cover_plan(project, "A harness", existing)
+    assert merged is not None
+    assert len(merged) == 2
+    assert {item["name"] for item in merged} == {"loop", "propose"}
+    assert "Adding the missing modules" in capsys.readouterr().out

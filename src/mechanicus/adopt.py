@@ -185,6 +185,7 @@ def _adopt_spec_body(name, modules=None, required=None, allow_longer=False):
     root = startup_dir()
     swift = is_swift_package(root)
     swift_tests_regenerated = False
+    fake_deps_rewritten = False
 
     def _restore_swift_adopted():
         if not swift:
@@ -269,6 +270,72 @@ def _adopt_spec_body(name, modules=None, required=None, allow_longer=False):
         print(f"\nSaved generation {generation} with rewritten tests.")
         return True
 
+    def _regenerate_tests_for_fake_deps(probe_detail):
+        """Rewrite tests that pass against stub deps, then regenerate code."""
+        nonlocal code, tests, check, fake_deps_rewritten
+        phase("Tests skip real uses: dependencies. Rewriting tests...")
+        log.info(
+            "adopt regenerating fake_deps tests for %s generation %s",
+            name,
+            code["generation"],
+        )
+        print(probe_detail)
+        gaps = (
+            "The suite still passes when required dependency modules are replaced "
+            "with stubs that fail on use. Rewrite tests and check so they fail "
+            "unless the real adopted dependency APIs are exercised. "
+            "Do not monkeypatch required dependencies. Do not invent neighbor APIs."
+        )
+        try:
+            stronger = strengthen_tests(
+                behavior,
+                code["content"],
+                tests["content"],
+                check["content"],
+                gaps=gaps,
+                modules=modules,
+                required=required,
+                name=name,
+            )
+        except Exception as error:
+            log.exception("adopt fake_deps test rewrite failed for %s", name)
+            print(f"Error: {error}")
+            return False
+        new_tests = stronger.tests
+        new_check = stronger.check
+        sniff = sniff_test_sources(new_tests, new_check)
+        if sniff is not None:
+            print(f"Rewritten tests still look unusable ({sniff}).")
+            return False
+        phase("Writing code for the rewritten tests...")
+        try:
+            result = generate_code(
+                behavior, new_tests, new_check, modules, required, name=name
+            )
+            spec_id, generation = save_generation(
+                name, behavior, result.code, new_tests, new_check
+            )
+            _persist_last_jev(name)
+        except Exception as error:
+            log.exception("adopt code after fake_deps rewrite failed for %s", name)
+            print(f"Error: {error}")
+            return False
+        code = get_generation_artifact(spec_id, generation, "code")
+        tests = get_generation_artifact(spec_id, generation, "tests")
+        check = get_generation_artifact(spec_id, generation, "check")
+        fake_deps_rewritten = True
+        log.info(
+            "saved fake_deps rewrite generation %s (%s lines) for %s",
+            generation,
+            code["lines"],
+            name,
+        )
+        print(f"\n--- Code ({code['lines']} lines) ---")
+        print(result.code)
+        print(f"\n{result.explanation}")
+        print(f"\nSaved generation {generation} with rewritten dependency tests.")
+        return True
+
     while True:
         phase("Running tests...")
         log.info("running tests for generation %s", code["generation"])
@@ -331,6 +398,20 @@ def _adopt_spec_body(name, modules=None, required=None, allow_longer=False):
                 if not exercised:
                     log.info("adopt refused: fake dependency path for %s", name)
                     print(probe_detail)
+                    if (
+                        not swift
+                        and not spec["pinned"]
+                        and not fake_deps_rewritten
+                    ):
+                        if _regenerate_tests_for_fake_deps(probe_detail):
+                            continue
+                        print(
+                            "Could not rewrite tests to require real uses: dependencies."
+                        )
+                    print(
+                        f"Hint: if this keeps failing, /add a brief that requires "
+                        f"calling the uses: modules, then /build {name}."
+                    )
                     _note_adopt(
                         name,
                         "failed",

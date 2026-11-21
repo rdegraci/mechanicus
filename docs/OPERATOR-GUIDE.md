@@ -88,7 +88,7 @@ The name is one token. The behavior is the rest of the line. A blank line does n
 | `/plan full [description]` | Full product plan: Jev breadth check, enrich implied gaps, then plan. |
 | `/add <feature>` | Adds a feature to the modules that perform it. |
 | `/add <n>` | Runs `/add` with suggestion number `n` when `.module` files exist. |
-| `/build` | Builds each `.module` file and writes the adopted code. Prints module status before and after. |
+| `/build` | Builds each `.module` file and writes the adopted code. Prints module status before and after, then a short build summary. |
 | `/build <name>` | Builds one `.module` file. Dependencies must already be adopted. Refuses modules still in a cycle. |
 | `/modules` | Lists each `.module` file with build status, disk sync, uses, and a short reason. |
 | `/import <name>` | Reads package source under the code root, saves it as adopted, and pins it. |
@@ -240,6 +240,8 @@ After a module adopts during `/build`, Mechanicus may strengthen the suite once:
 Mechanicus writes the code to a temporary directory as `impl.py` and runs pytest. Tests and the check must import `impl`. It deletes that directory after the run.
 
 Mechanicus adopts the generation only when the tests and the check both pass. It refuses an empty check. It refuses a longer generation when a shorter adopted generation has the same behavior. A different behavior can have more lines.
+
+For Python modules with `uses:`, adopt also probes that the suite fails when required dependencies are replaced with stubs that raise on use. If the suite still passes (monkeypatched or invented neighbor APIs), Mechanicus rewrites the tests once, regenerates code, and retries adopt. If that still fails, adopt records `fake_deps` and `/build` prints a hint. Downstream modules that `uses:` a failed module stay blocked until it adopts.
 
 When the tests fail, Mechanicus sends the pytest output to the writing model. The writing model repairs the code. The tests and the check do not change. Mechanicus saves that generation and runs pytest again. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. A pinned specification is not repaired. A failed run does not clear an older adopted generation.
 

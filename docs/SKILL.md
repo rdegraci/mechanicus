@@ -1,17 +1,19 @@
 ---
 name: mechanicus-scripts
 description: >-
-  Writes and reviews Mechanicus command scripts for building projects with
-  mechanicus --script or /script. Use when the user asks for a .mech script,
-  a Mechanicus recipe, batch slash commands, or how to drive /plan /build
-  /add /pin without the interactive REPL. Covers script grammar, refused
-  commands, MVP vs full plan, and safe command order.
+  Writes and reviews Mechanicus command scripts, and drives Mechanicus from
+  Cursor to plan, build, add features, or fix bugs. Use when the user asks for
+  a .mech script, a Mechanicus recipe, batch slash commands, /plan /build
+  /add /pin, or describes bad vs correct behavior and wants Mechanicus to
+  fix it. Covers script grammar, refused commands, MVP vs full plan, bug-fix
+  flow, and finding module names.
 ---
 
 # Mechanicus command scripts
 
-Help the user author a text file of Mechanicus slash commands. The operator
-runs it with:
+Help the user author a text file of Mechanicus slash commands, or run the
+same commands from the project directory via the shell. The operator runs a
+file with:
 
 ```text
 mechanicus --script path/to/commands.txt
@@ -21,7 +23,8 @@ mechanicus -s path/to/commands.txt
 Or from the REPL: `/script path/to/commands.txt`.
 
 Prefer linking to `docs/OPERATOR-GUIDE.md` for full human detail. This skill
-is for **script authorship**, not for editing Mechanicus internals.
+is for **driving Mechanicus** (scripts and Cursor-led command sequences), not
+for editing Mechanicus internals.
 
 ## What Mechanicus does
 
@@ -36,6 +39,9 @@ Mechanicus is specification-driven:
 Python is the default target. `/target swift-package Name` scaffolds a Swift
 package once. Swift plans are pure logic only (no SwiftUI, no test-suite
 modules named `Tests`).
+
+There is **no `/fix` command**. Bug fixes use the same contract loop as
+features: correct the behavior text, then rebuild.
 
 ## Script file format
 
@@ -84,6 +90,50 @@ boundaries). Mechanicus may enrich implied gaps into
 After `/plan`, the operator should read `.module` files before `/build`.
 If the script must proceed unattended, keep the description tight and the
 module graph small.
+
+## Fixing bugs (no `/fix` command)
+
+The user often knows only bad behavior vs correct behavior, not the module
+name. Discover the name, then correct the contract and rebuild.
+
+1. Find the module:
+   - `rg -n "phrase from the bug" *.module **/*.module`
+   - or `/modules` / `/specs`, then `/show <name>`
+2. `/unpin <name>` when that spec is pinned
+3. Put the **correct** behavior in the contract:
+   - `/add <corrected behavior text>` (planner picks modules), or
+   - `/add <n>` after `/suggestions` for a listed bug, or
+   - edit the `.module` brief by hand
+4. `/build` or `/build <name>`
+5. `/pin <name>` when the fix is good
+
+Do **not** use `/refactor` for bugs. Refactor keeps the same tests and only
+clarifies code. If tests encode the wrong behavior, change the module text
+(or `/add`) first. `/adopt` alone repairs code against current tests; it does
+not redefine the product contract.
+
+### Bug-fix script example
+
+```text
+# After rg /modules found context_budget
+/unpin context_budget
+/add When the transcript exceeds the budget, never drop the system instructions; drop or truncate the oldest tool payloads first; keep the latest user message and the last K tool results.
+/build context_budget
+/pin context_budget
+```
+
+## Cursor driving Mechanicus
+
+When the user describes a feature or bug in plain language, Cursor may:
+
+1. Work in the **project directory** (where `.mechanicus/` and `.module` files live)
+2. Look up module names with `rg`, `/modules`, or `/specs` — do not ask the user for `<name>` if it is findable
+3. Write a small `.mech` script or run `mechanicus -s …` / equivalent commands
+4. Skim updated `.module` files before an expensive full `/build` when the graph is large
+5. Confirm before `/unpin` on core modules and before `/clean … --apply`
+
+The user should not need to memorize Mechanicus ceremony. Prefer product
+language in chat; translate to `/add`, `/build`, `/pin` in the tool layer.
 
 ## Recommended recipes
 
@@ -135,6 +185,8 @@ module graph small.
 - `/build <name>` before dependencies are adopted — use full `/build` or order leaves first
 - `/clean orphans --apply` or `/clean all` without explicit user approval
 - Huge `/plan full` scripts when the user asked for a minimum slice — prefer mvp
+- Using `/refactor` to fix incorrect behavior — change the contract, then rebuild
+- Asking the user for a module name before searching `.module` files
 
 ## How to respond when asked for a script
 

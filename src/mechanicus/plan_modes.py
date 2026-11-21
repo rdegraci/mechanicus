@@ -66,6 +66,8 @@ def _cover_plan(root, description, normalized):
     for item in extra:
         if item["exists"]:
             log.info("plan left %s in place", item["relative"])
+    return normalized + extra
+
 
 def parse_plan_args(text):
     """Parse `/plan` rest into (mode, description).

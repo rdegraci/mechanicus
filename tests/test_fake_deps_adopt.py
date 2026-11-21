@@ -1,4 +1,6 @@
 """Adopt must refuse suites that only pass via fake/monkeypatched deps."""
+from types import SimpleNamespace
+
 from mechanicus.harness import real_deps_exercised, run_tests
 from mechanicus.lifecycle import adopt_spec
 from mechanicus.store import get_adopted_artifact, get_spec, save_generation
@@ -83,8 +85,18 @@ def test_probe_skipped_without_required():
     assert detail == ""
 
 
-def test_adopt_refuses_fake_dep_suite(project, monkeypatch):
-    monkeypatch.setattr("mechanicus.lifecycle.configured_repair_attempts", lambda: 0)
+def test_adopt_refuses_fake_dep_suite_after_failed_rewrite(project, monkeypatch, capsys):
+    monkeypatch.setattr("mechanicus.adopt.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr(
+        "mechanicus.adopt.strengthen_tests",
+        lambda *_a, **_k: SimpleNamespace(
+            tests=FAKE_TESTS, check=FAKE_CHECK, explanation="still fake"
+        ),
+    )
+    monkeypatch.setattr(
+        "mechanicus.adopt.generate_code",
+        lambda *_a, **_k: SimpleNamespace(code=IMPL_CODE, explanation="code"),
+    )
     modules = [("lib", LIB_CODE)]
     save_generation("consumer", "Add one via lib", IMPL_CODE, FAKE_TESTS, FAKE_CHECK)
     adopt_spec("consumer", modules=modules, required=["lib"])
@@ -92,10 +104,36 @@ def test_adopt_refuses_fake_dep_suite(project, monkeypatch):
     assert spec["adopt_status"] == "failed"
     assert spec["adopt_reason"] == "fake_deps"
     assert get_adopted_artifact(spec["id"], "code") is None
+    out = capsys.readouterr().out
+    assert "Rewriting tests" in out
+    assert "Hint:" in out
+
+
+def test_adopt_rewrites_fake_deps_then_adopts(project, monkeypatch, capsys):
+    monkeypatch.setattr("mechanicus.adopt.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr(
+        "mechanicus.adopt.strengthen_tests",
+        lambda *_a, **_k: SimpleNamespace(
+            tests=REAL_TESTS, check=REAL_CHECK, explanation="require lib"
+        ),
+    )
+    monkeypatch.setattr(
+        "mechanicus.adopt.generate_code",
+        lambda *_a, **_k: SimpleNamespace(code=IMPL_CODE, explanation="code"),
+    )
+    modules = [("lib", LIB_CODE)]
+    save_generation("consumer", "Add one via lib", IMPL_CODE, FAKE_TESTS, FAKE_CHECK)
+    adopt_spec("consumer", modules=modules, required=["lib"])
+    spec = get_spec("consumer")
+    assert spec["adopt_status"] == "ok"
+    adopted = get_adopted_artifact(spec["id"], "code")
+    assert adopted is not None
+    assert "lib.compute" in adopted["content"]
+    assert "Rewriting tests" in capsys.readouterr().out
 
 
 def test_adopt_accepts_real_dep_suite(project, monkeypatch):
-    monkeypatch.setattr("mechanicus.lifecycle.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr("mechanicus.adopt.configured_repair_attempts", lambda: 0)
     modules = [("lib", LIB_CODE)]
     save_generation("consumer", "Add one via lib", IMPL_CODE, REAL_TESTS, REAL_CHECK)
     adopt_spec("consumer", modules=modules, required=["lib"])
@@ -107,7 +145,7 @@ def test_adopt_accepts_real_dep_suite(project, monkeypatch):
 
 
 def test_adopt_without_uses_unchanged(project, monkeypatch):
-    monkeypatch.setattr("mechanicus.lifecycle.configured_repair_attempts", lambda: 0)
+    monkeypatch.setattr("mechanicus.adopt.configured_repair_attempts", lambda: 0)
     code = "def greet():\n    return 'hello'\n"
     tests = "import impl\n\ndef test_greet():\n    assert impl.greet() == 'hello'\n"
     check = "import impl\n\ndef test_check():\n    assert impl.greet()\n"

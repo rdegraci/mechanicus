@@ -408,6 +408,8 @@ def _test_modules_prompt(modules, required=None, swift=False) -> str:
         "Do not import other project modules.",
         "The tests and the check must fail when the implementation never calls "
         "a required module, or calls it incorrectly relative to these adopted sources.",
+        "The suite must also fail when required modules are replaced with stubs "
+        "that raise on use. Do not monkeypatch required dependency modules.",
     ]
     if names:
         called = ", ".join(names)

@@ -5,7 +5,7 @@ from mechanicus.activity import activity_spinner
 from mechanicus.adopt import adopt_spec, review_adopted_uses, strengthen_adopted
 from mechanicus.bootstrap_guard import is_bootstrap_name, refuse_bootstrap
 from mechanicus.config import log
-from mechanicus.console import phase
+from mechanicus.console import blank, phase
 from mechanicus.lifecycle import spec_command, write_adopted
 from mechanicus.paths import layout_conflict
 from mechanicus.plan_build import (
@@ -25,6 +25,69 @@ from mechanicus.store import (
     get_spec,
 )
 from mechanicus.swift_support import is_swift_test_suite_module_name
+
+
+def _print_fake_deps_hint(spec_name):
+    spec = get_spec(spec_name)
+    if spec is None or (spec["adopt_status"] or "") != "failed":
+        return
+    if (spec["adopt_reason"] or "") != "fake_deps":
+        return
+    print(
+        f"Hint for '{spec_name}': suite did not exercise real uses: dependencies. "
+        "Mechanicus rewrites those tests once during adopt when possible. "
+        f"If this persists, /add a brief that requires those modules, "
+        f"then /build {spec_name}."
+    )
+
+
+def _print_build_summary(outcomes):
+    """Print compact counts so blocked cascades are obvious."""
+    if not outcomes:
+        return
+    counts = {}
+    for status, _reason in outcomes.values():
+        counts[status] = counts.get(status, 0) + 1
+    blank()
+    print("--- build summary ---")
+    order = (
+        "built",
+        "unchanged",
+        "failed",
+        "blocked",
+        "pinned",
+        "skipped",
+        "empty",
+        "layout",
+        "bootstrap",
+        "cyclic",
+    )
+    parts = []
+    for status in order:
+        if status in counts:
+            parts.append(f"{status}={counts[status]}")
+    for status in sorted(counts):
+        if status not in order:
+            parts.append(f"{status}={counts[status]}")
+    print(" ".join(parts))
+    failed_fake = []
+    blocked = []
+    for name, (status, reason) in sorted(outcomes.items()):
+        if status == "blocked":
+            blocked.append(name)
+        if status == "failed":
+            spec = get_spec(name)
+            if spec is not None and (spec["adopt_reason"] or "") == "fake_deps":
+                failed_fake.append(name)
+    if failed_fake:
+        print(
+            "Failed fake_deps: "
+            + ", ".join(failed_fake)
+            + ". Fix those before blocked dependents can build."
+        )
+    if blocked:
+        print("Blocked: " + ", ".join(blocked) + ".")
+    blank()
 
 
 def build_one(root, record):
@@ -144,12 +207,14 @@ def build_one(root, record):
     adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
     if adopted is None or not str(adopted["content"]).strip():
         print(f"'{spec_name}' was not adopted.")
+        _print_fake_deps_hint(spec_name)
         return "failed", "was not adopted"
     if str(adopted["behavior"] or "").strip() != canonical:
         print(f"'{spec_name}' was not adopted.")
         return "failed", "adopted behavior does not match module"
     if not deps_are_current(spec_name, required):
         print(f"'{spec_name}' was not adopted.")
+        _print_fake_deps_hint(spec_name)
         return "failed", "was not adopted"
     strengthen_suffix = ""
     strengthen_result = strengthen_adopted(spec_name, modules, required)
@@ -237,3 +302,4 @@ def build_command(root, name=None):
             module_statuses(root, outcomes=outcomes),
             heading="--- modules after build ---",
         )
+        _print_build_summary(outcomes)

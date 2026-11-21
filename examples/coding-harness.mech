@@ -1,0 +1,17 @@
+# OpenAI Responses API coding-harness chat REPL (MVP)
+# Run from an empty project directory:
+#   mechanicus --script /path/to/mechanicus/examples/coding-harness.mech
+# Review .module files after /plan; Ctrl-C before /build if you need edits.
+# Requires OPENAI_API_KEY. Uses live model calls during /plan and /build.
+
+/target python
+
+/plan mvp Build a localhost Python chat REPL coding harness on the OpenAI Responses API (no web UI, no Node/npm). The operator chats in a terminal loop. Each turn may include multiple tool calls with return trips: the model proposes one or more tools, the harness executes them, appends structured tool results to the transcript, and calls the model again until the model stops calling tools or a max-round cap is hit. Maintain a transcript with a hard context budget: never drop the system instructions; prefer dropping or truncating the oldest tool payloads first; always keep the latest user message and the last K tool results. Provide a small tool registry with name, JSON-schema-like args, and handlers (at least echo, read_file under a sandbox root, and list_dir). Validate tool args before execute; return structured ok/error results. Include a thin Responses API client wrapper that sends instructions plus input items and reads output text and tool calls. Stop conditions: explicit final answer with no tool calls, or max rounds. Read OPENAI_API_KEY from the environment. Out of scope for MVP: persistence to disk, multi-agent, browser tools, and a web frontend.
+
+/modules
+
+/build
+
+/specs
+
+/cost

@@ -35,7 +35,9 @@ from mechanicus.project import (
     TARGET_PYTHON,
     TARGET_SWIFT_PACKAGE,
     is_swift_package,
+    is_valid_swift_identifier,
     load_project,
+    project_package_name,
     save_project,
 )
 from mechanicus.store import (
@@ -58,11 +60,13 @@ from mechanicus.swift_support import (
     classify_swift_before_code,
     empty_stub,
     ensure_package_scaffold,
+    is_swift_test_suite_module_name,
     read_swift_artifacts,
     restore_swift_artifacts,
     run_swift_tests,
     sniff_swift_test_sources,
     swift_check_path,
+    swift_code_is_empty,
     swift_toolchain_available,
     tests_for_disk_swift,
     write_swift_artifacts,
@@ -333,6 +337,51 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
         print("No behavioral check.")
         _note_adopt(name, "failed", "no_check", "No behavioral check.", code["generation"])
         return
+    behavior = spec["behavior"]
+    if is_swift_package(startup_dir()) and swift_code_is_empty(code["content"]):
+        log.info("adopt found empty swift code; regenerating")
+        print("Code was empty. Writing code...")
+        try:
+            regenerated = generate_code(
+                behavior,
+                tests["content"],
+                check["content"],
+                modules,
+                required,
+                name=name,
+            )
+            if swift_code_is_empty(regenerated.code):
+                print("Code stayed empty. Not adopted.")
+                _note_adopt(
+                    name,
+                    "failed",
+                    "empty_code",
+                    "Generated Swift code stayed empty.",
+                    code["generation"],
+                )
+                return
+            spec_id, generation = save_generation(
+                name, behavior, regenerated.code, tests["content"], check["content"]
+            )
+            code = get_generation_artifact(spec_id, generation, "code")
+            tests = get_generation_artifact(spec_id, generation, "tests")
+            check = get_generation_artifact(spec_id, generation, "check")
+            print(f"\n--- Code ({code['lines']} lines) ---")
+            print(regenerated.code)
+            print(f"\n{regenerated.explanation}")
+            print(f"\nSaved generation {generation}.")
+        except Exception as error:
+            log.exception("adopt empty-code regenerate failed for %s", name)
+            print(f"Error: {error}")
+            print("Code stayed empty. Not adopted.")
+            _note_adopt(
+                name,
+                "failed",
+                "empty_code",
+                f"Failed to regenerate empty code: {error}",
+                code["generation"],
+            )
+            return
     if not allow_longer:
         adopted = longer_than_adopted(spec["id"], code)
         if adopted is not None:
@@ -351,12 +400,12 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             print(f"Refused. {detail}")
             _note_adopt(name, "failed", "longer", detail, code["generation"])
             return
-    behavior = spec["behavior"]
     repairs_left = 0 if spec["pinned"] else configured_repair_attempts()
     repair_limit = repairs_left
     repair_number = 0
     root = startup_dir()
     swift = is_swift_package(root)
+    swift_tests_regenerated = False
 
     def _restore_swift_adopted():
         if not swift:
@@ -378,6 +427,66 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             name,
             {"code": empty_stub(root, name), "tests": None, "check": None},
         )
+
+    def _regenerate_swift_tests_and_code():
+        """Rewrite weak Swift tests, then generate code. Return True on success."""
+        nonlocal code, tests, check, swift_tests_regenerated
+        print("Tests look weak. Rewriting tests...")
+        log.info(
+            "adopt regenerating weak swift tests for %s generation %s",
+            name,
+            code["generation"],
+        )
+        try:
+            written = tests_until_red(behavior, modules, required, name=name)
+        except Exception as error:
+            log.exception("adopt test rewrite failed for %s", name)
+            print(f"Error: {error}")
+            return False
+        if written is None:
+            print("Could not rewrite tests that fail before the implementation.")
+            return False
+        new_tests, new_check = written
+        print("Writing code for the new tests...")
+        try:
+            result = generate_code(
+                behavior, new_tests, new_check, modules, required, name=name
+            )
+            code_text = result.code
+            if swift_code_is_empty(code_text):
+                attempts_left = configured_repair_attempts()
+                while attempts_left > 0 and swift_code_is_empty(code_text):
+                    attempts_left -= 1
+                    print("Code was empty. Writing code again...")
+                    result = generate_code(
+                        behavior, new_tests, new_check, modules, required, name=name
+                    )
+                    code_text = result.code
+            if swift_code_is_empty(code_text):
+                print("Code stayed empty after rewriting tests.")
+                return False
+            spec_id, generation = save_generation(
+                name, behavior, code_text, new_tests, new_check
+            )
+        except Exception as error:
+            log.exception("adopt code after test rewrite failed for %s", name)
+            print(f"Error: {error}")
+            return False
+        code = get_generation_artifact(spec_id, generation, "code")
+        tests = get_generation_artifact(spec_id, generation, "tests")
+        check = get_generation_artifact(spec_id, generation, "check")
+        swift_tests_regenerated = True
+        log.info(
+            "saved test-rewrite generation %s (%s lines) for %s",
+            generation,
+            code["lines"],
+            name,
+        )
+        print(f"\n--- Code ({code['lines']} lines) ---")
+        print(code_text)
+        print(f"\n{result.explanation}")
+        print(f"\nSaved generation {generation} with rewritten tests.")
+        return True
 
     while True:
         print("Running tests...")
@@ -463,6 +572,31 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
         if not pytest_passed:
             log.info("tests failed for generation %s", code["generation"])
         log.info("test output:\n%s", _failure_text(output))
+        # Swift: weak/pending tests cannot be fixed by code repair alone.
+        if (
+            swift
+            and not pytest_passed
+            and not spec["pinned"]
+            and not swift_tests_regenerated
+        ):
+            sniff = sniff_swift_test_sources(
+                tests["content"], check["content"], root, name
+            )
+            if sniff is not None:
+                print(f"Tests are not usable for adopt ({sniff}).")
+                log.info("adopt weak swift tests sniff=%s", sniff)
+                if _regenerate_swift_tests_and_code():
+                    continue
+                print("Tests failed. Not adopted.")
+                _note_adopt(
+                    name,
+                    "failed",
+                    "weak_tests",
+                    f"Could not rewrite weak tests ({sniff}).",
+                    code["generation"],
+                )
+                _restore_swift_adopted()
+                return
         if repairs_left <= 0:
             if spec["pinned"]:
                 log.info("repair skipped: %s is pinned", name)
@@ -944,6 +1078,19 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
         )
 
 
+def _require_swift_package_ready(root):
+    """Return an error message when the Swift project target is not usable."""
+    name = project_package_name(root)
+    if not name or not is_valid_swift_identifier(name):
+        return (
+            f"package_name {name!r} is not a valid Swift module identifier. "
+            "Enter /target swift-package <Name> with letters, digits, and underscores only."
+        )
+    if not swift_toolchain_available():
+        return "swift is not available on PATH."
+    return None
+
+
 def target_command(root, target=None, package_name=""):
     """Show or set the per-project build target."""
     root = Path(root).resolve()
@@ -953,6 +1100,11 @@ def target_command(root, target=None, package_name=""):
         if settings["target"] == TARGET_SWIFT_PACKAGE:
             print(f"package_name: {settings['package_name']}")
             print(f"package_root: {settings['package_root']}")
+            if not is_valid_swift_identifier(settings["package_name"]):
+                print(
+                    "Warning: package_name is not a valid Swift identifier. "
+                    "Re-run /target swift-package <Name>."
+                )
         return settings
     target = str(target).strip().lower()
     if target not in (TARGET_PYTHON, TARGET_SWIFT_PACKAGE):
@@ -965,6 +1117,11 @@ def target_command(root, target=None, package_name=""):
         return None
     print(f"target: {settings['target']}")
     if settings["target"] == TARGET_SWIFT_PACKAGE:
+        if settings.get("normalized_from"):
+            print(
+                f"Normalized package_name {settings['normalized_from']!r} "
+                f"-> {settings['package_name']!r} (Swift module names cannot contain hyphens)."
+            )
         print(f"package_name: {settings['package_name']}")
         print(f"package_root: {settings['package_root']}")
         scaffold = ensure_package_scaffold(root)
@@ -985,10 +1142,18 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
     if refuse_bootstrap(name, "regenerated"):
         return
     recorded = behavior if record is None else record
+    root = startup_dir()
+    if is_swift_package(root) and is_swift_test_suite_module_name(name):
+        log.info("spec refused: test-suite module %s", name)
+        print(
+            f"'{name}' looks like a test-suite module. "
+            "Mechanicus writes XCTest for each logic module; do not /spec /Tests modules."
+        )
+        return
     if modules is None:
         from mechanicus.plan_build import dependency_modules
 
-        modules, required, missing = dependency_modules(startup_dir(), name)
+        modules, required, missing = dependency_modules(root, name)
         if missing:
             names = ", ".join(missing)
             log.info("spec refused: %s uses %s", name, names)
@@ -1001,8 +1166,13 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         log.info("spec refused: %s is pinned", name)
         print(f"'{name}' is pinned. It cannot be regenerated or overwritten.")
         return
-    if is_swift_package(startup_dir()):
-        ensure_package_scaffold(startup_dir())
+    if is_swift_package(root):
+        problem = _require_swift_package_ready(root)
+        if problem:
+            log.info("spec refused: %s", problem)
+            print(problem)
+            return
+        ensure_package_scaffold(root)
     print("Writing tests...")
     try:
         written = tests_until_red(behavior, modules, required, name=name)
@@ -1030,8 +1200,39 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         print(f"Error: {error}")
         print(f"Saved generation {generation} without code. Use '/adopt {name}' to write the code.")
         return
+    code_text = result.code
+    if is_swift_package(root) and swift_code_is_empty(code_text):
+        # Empty is not a finished generation — keep asking for a real implementation.
+        attempts_left = configured_repair_attempts()
+        attempt_limit = attempts_left
+        attempt_number = 0
+        while attempts_left > 0 and swift_code_is_empty(code_text):
+            attempt_number += 1
+            attempts_left -= 1
+            print(
+                f"Code was empty. Writing code again "
+                f"({attempt_number} of {attempt_limit})..."
+            )
+            log.info(
+                "regenerate empty swift code %s of %s for %s",
+                attempt_number,
+                attempt_limit,
+                name,
+            )
+            try:
+                result = generate_code(
+                    behavior, tests, check, modules, required, name=name
+                )
+                code_text = result.code
+            except Exception as error:
+                log.exception("empty-code regenerate failed for %s", name)
+                print(f"Error: {error}")
+                break
+        if swift_code_is_empty(code_text):
+            print("Code stayed empty after retries. Not saved.")
+            return
     try:
-        spec_id, generation = save_generation(name, recorded, result.code, tests, check)
+        spec_id, generation = save_generation(name, recorded, code_text, tests, check)
         _persist_last_jev(name)
     except Exception as error:
         log.exception("spec failed for %s", name)
@@ -1039,7 +1240,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         return
     code = get_generation_artifact(spec_id, generation, "code")
     print(f"\n--- Code ({code['lines']} lines) ---")
-    print(result.code)
+    print(code_text)
     print(f"\n{result.explanation}")
     log.info("saved %s generation %s (%s lines)", name, generation, code["lines"])
     print(f"\nSaved generation {generation}. Use '/adopt {name}' to run tests and accept.")

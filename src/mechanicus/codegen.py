@@ -16,13 +16,23 @@ from mechanicus.project import is_swift_package, project_package_name
 from mechanicus.swift_support import swift_type_name
 
 
+_FORMATTING_RULES = """
+Formatting (required):
+- Use normal newlines so a human can read the file. Do not minify.
+- Prefer one statement per line. Do not chain statements with semicolons.
+- Put each type, function, and control-flow brace structure on separate lines.
+- Put a blank line between top-level declarations (types, free functions, imports groups).
+- Indent nested bodies. Keep lines reasonably short; wrap long signatures and calls.
+- Prefer a small API and short logic over packing many statements onto fewer lines.
+"""
+
 _SHARED_INSTRUCTIONS = """You are the generator for a minimal specification-driven coding system.
 
 Purpose of the system:
 - Users interact through a CLI REPL.
 - Behavioral specifications are stored in a SQLite database.
 - Tests and a behavioral check are written before the implementation.
-- The implementation is the shortest Python that makes those tests pass.
+- The implementation is the smallest working Python that makes those tests pass.
 - Generated code, tests, and the behavioral check are saved back into SQLite.
 - Self-modification is allowed only through the spec → regenerate → test → explicit adopt path.
 - Critical bootstrap pieces can be pinned and must not be overwritten.
@@ -33,7 +43,7 @@ The implementation module name is impl. Pytest loads the code from impl.py.
 tests and check must import that module with `import impl` or `from impl import ...`.
 Do not start a subprocess to import the code.
 The check calls the functions in impl from the same process.
-"""
+""" + _FORMATTING_RULES
 
 _SWIFT_SHARED_INSTRUCTIONS = """You are the generator for a minimal specification-driven coding system.
 
@@ -41,16 +51,17 @@ Purpose of the system:
 - Users interact through a CLI REPL.
 - Behavioral specifications are stored in a SQLite database.
 - Tests and a behavioral check are written before the implementation.
-- The implementation is the shortest pure Swift that makes those XCTest suites pass.
+- The implementation is the smallest working pure Swift that makes those XCTest suites pass.
 - Generated code, tests, and the behavioral check are saved back into SQLite.
 - Code is written into a local Swift package (Sources + Tests). No SwiftUI. No UIKit.
 - Self-modification is allowed only through the spec → regenerate → test → explicit adopt path.
 
-The package product name is given in the request.
-tests and check must `import XCTest` and `@testable import <PackageName>`.
+The package product name is given in the request. It is a legal Swift identifier (letters, digits, underscore only).
+tests and check must `import XCTest` and `@testable import <PackageName>` using that exact name.
+Never write a hyphenated import.
 Mark public API `public` so an iOS app can import the package.
 Prefer structs, enums, and pure functions. Do not use SwiftUI or UIKit.
-"""
+""" + _FORMATTING_RULES
 
 
 def _swift_mode(root=None):
@@ -113,6 +124,10 @@ Do not write the implementation.
 Each of tests and check must be a complete XCTest source file:
 import XCTest
 @testable import {package_name}
+Call the public API of {type_name} (initializers and members).
+Do not use XCTFail alone to say the API is missing or unspecified.
+Prefer XCTAssert* against returned values so a real implementation can pass.
+A stub without the needed members should fail to compile or fail assertions.
 {import_rule}
 Output fields:
 - tests: XCTest unit tests for {type_name}
@@ -123,29 +138,33 @@ Output fields:
 
 _CODE_INSTRUCTIONS = _SHARED_INSTRUCTIONS + """
 The tests and the check are already written. They are fixed.
-Write the shortest possible working implementation (fewest lines) that makes them pass.
+Write the smallest working implementation that makes them pass.
+Keep the logic small. Do not crush statements onto one line to reduce the line count.
 Do not change the tests or the check.
 Call each adopted module the request names. An unused import does not count.
 Do not reimplement a listed module.
 When the request lists no adopted modules, do not import another project module.
 
 Output fields:
-- code: the shortest working Python implementation
+- code: a complete readable Python implementation
 - explanation: one short paragraph
 """
 
 _SWIFT_CODE_INSTRUCTIONS = _SWIFT_SHARED_INSTRUCTIONS + """
 The tests and the check are already written. They are fixed.
-Write the shortest possible working Swift implementation (fewest lines) that makes them pass.
+Write the smallest working Swift implementation that makes them pass.
+Keep the logic small. Do not crush statements onto one line to reduce the line count.
 Do not change the tests or the check.
 Use the primary public type name from the request.
 Mark public API public.
+The code field must contain a complete non-empty Swift source file with normal newlines.
+Do not return an empty string, comments only, or a type with no members the tests need.
 Call each adopted dependency type the request names when uses: requires it.
 Do not reimplement a listed dependency.
 Do not use SwiftUI or UIKit.
 
 Output fields:
-- code: the shortest working Swift implementation (one source file)
+- code: a complete readable Swift source file
 - explanation: one short paragraph
 """
 
@@ -192,6 +211,10 @@ The name is a relative path with no spaces and no file extension. Use slashes fo
 Do not use a top-level name that matches an existing package directory. Nest under that package instead.
 Do not use a child path under a name that already exists as a top-level .py module file.
 Do not use the top-level names Sources, Tests, or Package.
+Do not create modules whose job is only testing, CI, or packaging manifests.
+Do not name a module Tests or end a path with /Tests or /Test.
+The system writes XCTest for each logic module automatically; do not plan separate test-suite modules.
+Plan pure logic and contracts only. Leave SwiftUI screens, Xcode projects, and Package.swift out.
 The behavior is your recommendation for that module. Write one or more sentences the user can edit.
 Do not write implementation code.
 
@@ -220,8 +243,10 @@ A new module may call a module already in the plan. List that name in uses.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
 Do not use a top-level name that matches an existing package directory. Nest under that package instead.
 Do not use a child path under a name that already exists as a top-level .py module file.
+Do not create modules named Tests or ending with /Tests.
+Do not add modules whose only job is testing, CI, or Package.swift.
 The behavior is one or more sentences the user can edit.
-Do not write Python.
+Do not write implementation code.
 
 Output fields:
 - modules: only the new modules
@@ -239,8 +264,9 @@ Do not remove a behavior that is already in a module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
 Do not use a top-level name that matches an existing package directory. Nest under that package instead.
 Do not use a child path under a name that already exists as a top-level .py module file.
+Do not create modules named Tests or ending with /Tests.
 The behavior is one or more sentences the user can edit.
-Do not write Python.
+Do not write implementation code.
 
 Output fields:
 - modules: only the modules that change, and any new module
@@ -257,8 +283,9 @@ The new module must not use a listed module.
 The name is a relative path with no spaces and no file extension. Use slashes for directories.
 Do not use a top-level name that matches an existing package directory. Nest under that package instead.
 Do not use a child path under a name that already exists as a top-level .py module file.
+Do not name the new module Tests or end it with /Tests.
 The behavior is one or more sentences the user can edit.
-Do not write Python.
+Do not write implementation code.
 
 Output fields:
 - name: the new module
@@ -474,7 +501,8 @@ def generate_code(behavior: str, tests: str, check: str, modules=None, required=
             f"Primary public type name: {type_name}\n\n"
             f"{_modules_prompt(modules, required, swift=True)}"
             "The tests and the check are fixed.\n"
-            "Write the shortest Swift implementation that makes them pass.\n\n"
+            "Write a small, readable Swift implementation that makes them pass.\n"
+            "Use normal newlines; do not minify.\n\n"
             f"Tests:\n{tests}\n\n"
             f"Check:\n{check}",
             _SWIFT_CODE_INSTRUCTIONS,
@@ -485,7 +513,8 @@ def generate_code(behavior: str, tests: str, check: str, modules=None, required=
         f"{behavior}\n\n"
         f"{_modules_prompt(modules, required)}"
         "The tests and the check are fixed.\n"
-        "Write the shortest implementation that makes them pass.\n\n"
+        "Write a small, readable implementation that makes them pass.\n"
+        "Use normal newlines; do not minify.\n\n"
         f"Tests:\n{tests}\n\n"
         f"Check:\n{check}",
         _CODE_INSTRUCTIONS,
@@ -575,13 +604,13 @@ def _repair_request(behavior, code, tests, check, output, modules, required, tes
                 "swift test passed, but the code should still use the adopted dependency types.\n"
                 "Keep the tests passing.\n"
                 "Do not change the tests or the check.\n"
-                "Keep the code as short as possible.\n\n"
+                "Keep the logic small, and keep normal newlines (do not minify).\n\n"
             )
         else:
             failure = (
                 "The tests failed. The tests and the check are fixed.\n"
                 "Change only the Swift code so swift test passes.\n"
-                "Keep the code as short as possible.\n\n"
+                "Keep the logic small, and keep normal newlines (do not minify).\n\n"
             )
         return (
             "Behavioral specification:\n"
@@ -602,13 +631,13 @@ def _repair_request(behavior, code, tests, check, output, modules, required, tes
             "Call each missing module while performing the behavior.\n"
             "Keep the tests passing.\n"
             "Do not change the tests or the check.\n"
-            "Keep the code as short as possible.\n\n"
+            "Keep the logic small, and keep normal newlines (do not minify).\n\n"
         )
     else:
         failure = (
             "The tests failed. The tests and the check are fixed.\n"
             "Change only the code so pytest passes.\n"
-            "Keep the code as short as possible.\n\n"
+            "Keep the logic small, and keep normal newlines (do not minify).\n\n"
         )
     return (
         "Behavioral specification:\n"

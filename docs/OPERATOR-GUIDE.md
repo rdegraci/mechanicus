@@ -20,9 +20,9 @@ Each start writes a new file in `~/Library/Application Support/mechanicus/logs`.
 
 The language target is per project in `.mechanicus/project.yaml`. When that file is missing, Mechanicus uses Python.
 
-Enter `/target swift-package MyAppLogic` to select a Swift package. Mechanicus writes `project.yaml` and scaffolds `MyAppLogic/Package.swift` once (it does not overwrite an existing manifest). Specs still use `.module` files beside `Package.swift`. Adopted logic lands under `Sources/MyAppLogic/` and XCTest under `Tests/MyAppLogicTests/`. `/build` and `/adopt` run `swift test` in that package in place. Enter `/target python` to return to Python.
+Enter `/target swift-package MyAppLogic` to select a Swift package. Mechanicus writes `project.yaml` and scaffolds `MyAppLogic/Package.swift` once (it does not overwrite an existing manifest). The package name must be a legal Swift identifier (letters, digits, underscore). Hyphens are normalized to underscores. Specs still use `.module` files beside `Package.swift`. Adopted logic lands under `Sources/MyAppLogic/` and XCTest under `Tests/MyAppLogicTests/`. `/build` and `/adopt` run `swift test` in that package in place. Enter `/target python` to return to Python.
 
-Swift v1 is pure logic only (no SwiftUI). Link the local package from an Xcode app separately. Cross-module `uses:` call-graph proofs from the Python path are not enforced for Swift yet; compile and XCTest green are the adopt gate.
+Swift v1 is pure logic only (no SwiftUI). Do not plan modules named `Tests` or ending in `/Tests`; Mechanicus writes XCTest for each logic module. Link the local package from an Xcode app separately. Cross-module `uses:` call-graph proofs from the Python path are not enforced for Swift yet; compile and XCTest green are the adopt gate.
 
 ## Start
 
@@ -189,6 +189,8 @@ Mechanicus writes the code to a temporary directory as `impl.py` and runs pytest
 Mechanicus adopts the generation only when the tests and the check both pass. It refuses an empty check. It refuses a longer generation when a shorter adopted generation has the same behavior. A different behavior can have more lines.
 
 When the tests fail, Mechanicus sends the pytest output to the writing model. The writing model repairs the code. The tests and the check do not change. Mechanicus saves that generation and runs pytest again. `repair_attempts` in `config.yaml` sets the number of repairs. The default is 3. A pinned specification is not repaired. A failed run does not clear an older adopted generation.
+
+For a `swift-package` target, `/adopt` writes sources in place and runs `swift test`. If the harness fails and the tests look weak (for example XCTFail-only “pending” suites), Mechanicus rewrites the tests once, generates new code for those tests, then continues adopt. It does not keep repairing code against tests that never assert the behavior.
 
 If the latest code is pinned and already adopted, Mechanicus refuses `/adopt`. If that code is pinned and not adopted, Mechanicus still runs the tests.
 

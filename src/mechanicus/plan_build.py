@@ -22,6 +22,7 @@ from mechanicus.jev import (
 )
 from mechanicus.lifecycle import adopt_spec, disk_sync_status, spec_command, write_adopted
 from mechanicus.paths import layout_conflict, write_text_file
+from mechanicus.project import is_swift_package
 from mechanicus.store import (
     deps_are_current,
     get_adopted_artifact,
@@ -29,6 +30,7 @@ from mechanicus.store import (
     get_latest_artifact,
     get_spec,
 )
+from mechanicus.swift_support import is_swift_test_suite_module_name
 
 
 _SKIP_DIR_NAMES = {
@@ -178,6 +180,13 @@ def _planned_module_records(root, modules, seen_names):
         if spec_name is None or destination is None or not behavior:
             log.info("plan skipped %s", module.name)
             print(f"Skipped '{module.name}'.")
+            continue
+        if is_swift_package(root) and is_swift_test_suite_module_name(spec_name):
+            log.info("plan skipped test-suite module %s", spec_name)
+            print(
+                f"Skipped '{spec_name}'. "
+                "Mechanicus writes XCTest per logic module; do not plan /Tests modules."
+            )
             continue
         conflict = layout_conflict(root, spec_name)
         if conflict and not destination.exists():
@@ -834,6 +843,13 @@ def build_one(root, record):
     spec_name = record["name"]
     if refuse_bootstrap(spec_name, "built"):
         return "bootstrap", "bootstrap module"
+    if is_swift_package(root) and is_swift_test_suite_module_name(spec_name):
+        log.info("build skipped test-suite module %s", spec_name)
+        print(
+            f"Skipped '{spec_name}'. "
+            "Delete this .module or rename it; Mechanicus does not build /Tests modules."
+        )
+        return "skipped", "test-suite module"
     conflict = layout_conflict(root, spec_name)
     if conflict:
         log.info("build skipped layout %s", conflict)

@@ -167,17 +167,28 @@ def ensure_package_scaffold(root):
 
 
 def tests_for_disk_swift(tests, root):
+    """Normalize XCTest sources and force a legal @testable import."""
     text = str(tests or "")
     package = project_package_name(root)
-    if package and f"@testable import {package}" not in text and f"import {package}" not in text:
-        if "import XCTest" in text:
-            text = text.replace(
-                "import XCTest",
-                f"import XCTest\n@testable import {package}",
-                1,
-            )
-        else:
-            text = f"import XCTest\n@testable import {package}\n{text}"
+    if not package:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        return text
+    kept = []
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if re.match(r"^import\s+XCTest\b", stripped):
+            continue
+        if re.match(r"^@testable\s+import\b", stripped):
+            continue
+        if re.match(rf"^import\s+{re.escape(package)}\b", stripped):
+            continue
+        # Drop illegal hyphenated module imports (e.g. scriptor-fidelis).
+        if re.match(r"^import\s+[A-Za-z_][A-Za-z0-9_]*-[A-Za-z0-9_-]*\b", stripped):
+            continue
+        kept.append(line)
+    body = "".join(kept).lstrip("\n")
+    text = f"import XCTest\n@testable import {package}\n{body}"
     if text and not text.endswith("\n"):
         text += "\n"
     return text
@@ -185,6 +196,27 @@ def tests_for_disk_swift(tests, root):
 
 def check_for_disk_swift(check, root):
     return tests_for_disk_swift(check, root)
+
+
+def swift_code_is_empty(code):
+    """True when generated Swift has no meaningful implementation lines."""
+    for line in str(code or "").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        return False
+    return True
+
+
+def is_swift_test_suite_module_name(name):
+    """True for plan names like Foo/Tests that should not be built as logic."""
+    relative = Path(str(name).strip().replace("\\", "/"))
+    if relative.suffix.lower() in (".swift", ".module", ".py"):
+        relative = relative.with_suffix("")
+    if not relative.parts:
+        return False
+    leaf = relative.parts[-1].lower()
+    return leaf in {"tests", "test"}
 
 
 def write_swift_artifacts(root, name, code, tests, check=""):
@@ -258,6 +290,17 @@ def sniff_swift_test_sources(tests, check, root, name):
             return f"no_assert_{label}"
         if type_name and type_name not in body:
             return f"no_type_{label}"
+        # Pending-only: XCTFail without XCTAssert means tests don't specify behavior.
+        if re.search(r"\bXCTFail\b", body) and not re.search(r"\bXCTAssert", body):
+            return f"pending_only_{label}"
+        # Must exercise the type API (member or initializer), not only name it in strings.
+        if type_name:
+            api_call = (
+                re.search(rf"\b{re.escape(type_name)}\s*\.", body) is not None
+                or re.search(rf"\b{re.escape(type_name)}\s*\(", body) is not None
+            )
+            if not api_call:
+                return f"no_api_call_{label}"
     return None
 
 

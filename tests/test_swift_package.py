@@ -4,21 +4,27 @@ import pytest
 from mechanicus.lifecycle import target_command
 from mechanicus.paths import adopted_output_path, layout_conflict
 from mechanicus.paths import test_output_path as disk_test_path
+from mechanicus.plan_build import build_one
 from mechanicus.project import (
     TARGET_PYTHON,
     TARGET_SWIFT_PACKAGE,
     is_swift_package,
+    is_valid_swift_identifier,
     load_project,
+    normalize_swift_package_name,
     project_package_name,
     save_project,
 )
+from mechanicus import swift_support
 from mechanicus.swift_support import (
     classify_swift_before_code,
     empty_stub,
     ensure_package_scaffold,
+    is_swift_test_suite_module_name,
     run_swift_tests,
     sniff_swift_test_sources,
     swift_check_path,
+    swift_code_is_empty,
     swift_toolchain_available,
     swift_type_name,
     write_swift_artifacts,
@@ -167,3 +173,77 @@ def test_python_paths_unchanged_without_project_yaml(project):
     assert disk_test_path(project, "cli/main") == (
         project / "tests" / "cli" / "test_cli_main.py"
     ).resolve()
+
+
+def test_normalize_hyphenated_package_name(project):
+    assert normalize_swift_package_name("scriptor-fidelis") == "scriptor_fidelis"
+    assert is_valid_swift_identifier("scriptor_fidelis")
+    assert not is_valid_swift_identifier("scriptor-fidelis")
+    settings = save_project(project, TARGET_SWIFT_PACKAGE, package_name="scriptor-fidelis")
+    assert settings["package_name"] == "scriptor_fidelis"
+    assert settings.get("normalized_from") == "scriptor-fidelis"
+    assert project_package_name(project) == "scriptor_fidelis"
+
+
+def test_tests_for_disk_rewrites_illegal_import(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="scriptor_fidelis")
+    raw = (
+        "import XCTest\n"
+        "@testable import scriptor-fidelis\n"
+        "final class GreeterTests: XCTestCase {}\n"
+    )
+    fixed = swift_support.tests_for_disk_swift(raw, project)
+    assert "@testable import scriptor_fidelis" in fixed
+    assert "scriptor-fidelis" not in fixed
+
+
+def test_sniff_rejects_pending_only_and_no_api_call(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="MyAppLogic")
+    pending = """
+import XCTest
+@testable import MyAppLogic
+final class MappingTests: XCTestCase {
+    func testPending() {
+        XCTFail("SFPersistenceMapping has no specified public behavior or API yet.")
+    }
+}
+"""
+    assert sniff_swift_test_sources(pending, pending, project, "SFPersistence/Mapping") == (
+        "pending_only_tests"
+    )
+    no_api = """
+import XCTest
+@testable import MyAppLogic
+final class MappingTests: XCTestCase {
+    func testMention() {
+        XCTAssertTrue(true, "SFPersistenceMapping exists in docs only")
+    }
+}
+"""
+    assert sniff_swift_test_sources(no_api, no_api, project, "SFPersistence/Mapping") == (
+        "no_api_call_tests"
+    )
+
+
+def test_swift_code_is_empty_and_test_suite_names():
+    assert swift_code_is_empty("")
+    assert swift_code_is_empty("// only comment\n")
+    assert not swift_code_is_empty("public struct Foo {}\n")
+    assert is_swift_test_suite_module_name("SFCore/Tests")
+    assert is_swift_test_suite_module_name("Tests")
+    assert not is_swift_test_suite_module_name("SFCore/Domain")
+
+
+def test_build_skips_swift_test_suite_module(project):
+    save_project(project, TARGET_SWIFT_PACKAGE, package_name="MyAppLogic")
+    ensure_package_scaffold(project)
+    record = {
+        "name": "SFCore/Tests",
+        "behavior": "Test everything with Swift Testing.",
+        "text": "Test everything with Swift Testing.",
+        "uses": [],
+        "path": project / "MyAppLogic" / "SFCore" / "Tests.module",
+    }
+    status, reason = build_one(project, record)
+    assert status == "skipped"
+    assert "test-suite" in reason

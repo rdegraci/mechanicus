@@ -5,6 +5,7 @@ from mechanicus.activity import activity_spinner
 from mechanicus.adopt import adopt_spec, review_adopted_uses, strengthen_adopted
 from mechanicus.bootstrap_guard import is_bootstrap_name, refuse_bootstrap
 from mechanicus.config import log
+from mechanicus.console import phase
 from mechanicus.lifecycle import spec_command, write_adopted
 from mechanicus.paths import layout_conflict
 from mechanicus.plan_build import (
@@ -67,17 +68,17 @@ def build_one(root, record):
     force_rebuild = False
     if same and has_adopted and deps_ok:
         log.info("build writes adopted %s", spec_name)
-        print(f"'{spec_name}' is already adopted.")
+        phase(f"'{spec_name}' is already adopted.")
         if not write_adopted(root, spec_name):
             return "failed", "already adopted; disk was not updated"
         if required:
-            print(f"Checking uses: coverage for '{spec_name}'...")
+            phase(f"Checking uses: coverage for '{spec_name}'...")
             weak = review_adopted_uses(spec_name, required)
             if weak:
                 details = ", ".join(
                     f"{dep} ({probability:.2f})" for dep, probability in weak
                 )
-                print(
+                phase(
                     f"Tests do not require these uses: {details}. Rebuilding..."
                 )
                 log.info("build force rebuild weak uses %s: %s", spec_name, details)
@@ -90,7 +91,7 @@ def build_one(root, record):
     if same and has_adopted and not deps_ok and not force_rebuild:
         rebuilt_upstream = True
         log.info("build re-adopts stale %s", spec_name)
-        print(f"'{spec_name}' has upstream changes. Re-adopting...")
+        phase(f"'{spec_name}' has upstream changes. Re-adopting...")
         adopt_spec(spec_name, modules, required)
         spec = get_spec(spec_name)
         adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")
@@ -109,14 +110,14 @@ def build_one(root, record):
             if write_adopted(root, spec_name):
                 return "built", f"re-adopted after upstream change{strengthen_suffix}"
             return "failed", "re-adopted; disk was not updated"
-        print(f"Building {spec_name}...")
+        phase(f"Building {spec_name}...")
         spec_command(spec_name, prose, modules, canonical, required)
         spec = get_spec(spec_name)
         if spec is None or str(spec["behavior"]).strip() != canonical:
             print(f"'{spec_name}' was not saved.")
             return "failed", "was not saved"
     elif not same or force_rebuild:
-        print(f"Building {spec_name}...")
+        phase(f"Building {spec_name}...")
         prior_generation = None
         if force_rebuild and spec is not None:
             prior_latest = get_latest_artifact(spec["id"], "code")
@@ -134,7 +135,7 @@ def build_one(root, record):
                 log.info("build force rebuild saved nothing %s", spec_name)
                 return "failed", "uses coverage rebuild was not saved"
     else:
-        print(f"Adopting {spec_name}...")
+        phase(f"Adopting {spec_name}...")
     adopted = get_adopted_artifact(spec["id"], "code")
     latest = get_latest_artifact(spec["id"], "code")
     if adopted is None or latest is None or adopted["generation"] != latest["generation"]:

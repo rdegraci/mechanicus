@@ -14,6 +14,7 @@ from mechanicus.codegen import (
     repair_tests,
 )
 from mechanicus.config import configured_repair_attempts, log, startup_dir
+from mechanicus.console import blank, phase
 from mechanicus.harness import (
     _failure_text,
     classify_before_code_with_reason,
@@ -137,15 +138,18 @@ def run_adopted(name):
 
 
 def _print_generation(spec_id, generation, heading):
+    blank()
     print(heading)
     titles = (("code", "Code"), ("tests", "Tests"), ("check", "Check"))
     for kind, title in titles:
         artifact = get_generation_artifact(spec_id, generation, kind)
+        blank()
         print(f"--- {title} ---")
         if artifact is None or not str(artifact["content"]).strip():
             print("(none)")
         else:
             print(str(artifact["content"]).rstrip("\n"))
+    blank()
 
 
 def _normalize_text(text):
@@ -204,7 +208,9 @@ def show_spec(name, root=None):
         print("Not found.")
         return
     sync = disk_sync_status(root, name)
+    blank()
     print(f"Spec: {spec['behavior']} (pinned={bool(spec['pinned'])} sync={sync})")
+    blank()
     adopt_status = spec["adopt_status"] or "none"
     if adopt_status != "none":
         adopt_line = f"Adopt: {adopt_status}"
@@ -217,6 +223,7 @@ def show_spec(name, root=None):
             print(f"detail: {spec['adopt_detail']}")
     else:
         print("Adopt: none")
+    blank()
     jev_status = spec["jev_status"] or "none"
     if jev_status != "none":
         jev_line = f"Jev: {jev_status}"
@@ -232,6 +239,7 @@ def show_spec(name, root=None):
     adopted = get_adopted_artifact(spec["id"], "code")
     latest = get_latest_artifact(spec["id"], "code")
     if adopted is None:
+        blank()
         print("No adopted generation.")
     else:
         suffix = ""
@@ -261,6 +269,7 @@ def list_specs(root=None):
     if not names:
         print("No specifications.")
         return
+    blank()
     width = max(len(name) for name in names)
     for name in names:
         spec = get_spec(name)
@@ -274,6 +283,7 @@ def list_specs(root=None):
             f"{name:<{width}}  pinned={pinned}  adopted={generation}  "
             f"sync={sync}  adopt={adopt}  jev={jev}"
         )
+    blank()
 
 
 
@@ -542,11 +552,15 @@ def test_command(root, name=None):
 
 
 def _print_tests(tests, check, explanation):
-    print("\n--- Tests ---")
+    blank()
+    print("--- Tests ---")
     print(tests)
-    print("\n--- Check ---")
+    blank()
+    print("--- Check ---")
     print(check)
-    print(f"\n{explanation}")
+    blank()
+    print(explanation)
+    blank()
 
 
 
@@ -590,7 +604,7 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
                     print("swift is not available on PATH. Not saved.")
                     restore_swift_artifacts(root, name, prior_disk)
                     return None
-                print("Running tests...")
+                phase("Running tests...")
                 write_swift_artifacts(
                     root, name, empty_stub(root, name), tests, check
                 )
@@ -612,7 +626,7 @@ def tests_until_red(behavior, modules=None, required=None, name=None):
                 log.info("tests sniffed before the implementation: %s", sniff)
                 print(f"Tests are not red ({sniff}).")
             else:
-                print("Running tests...")
+                phase("Running tests...")
                 passed, output = run_tests("", tests, check, modules)
                 kind, reason = classify_before_code_with_reason(passed, output, tests, check)
                 log.info("tests before the implementation: %s (%s)", kind, reason)
@@ -771,7 +785,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
             print(problem)
             return
         ensure_package_scaffold(root)
-    print("Writing tests...")
+    phase("Writing tests...")
     try:
         written = tests_until_red(behavior, modules, required, name=name)
     except Exception as error:
@@ -782,7 +796,7 @@ def spec_command(name, behavior, modules=None, record=None, required=None):
         print("Tests did not fail for the behavior. Not saved.")
         return
     tests, check = written
-    print("Writing code...")
+    phase("Writing code...")
     try:
         result = generate_code(behavior, tests, check, modules, required, name=name)
     except Exception as error:

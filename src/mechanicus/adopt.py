@@ -7,6 +7,7 @@ from mechanicus.codegen import (
     strengthen_tests,
 )
 from mechanicus.config import configured_repair_attempts, log, startup_dir
+from mechanicus.console import blank, phase
 from mechanicus.harness import (
     _failure_text,
     real_deps_exercised,
@@ -202,7 +203,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
     def _regenerate_swift_tests_and_code():
         """Rewrite weak Swift tests, then generate code. Return True on success."""
         nonlocal code, tests, check, swift_tests_regenerated
-        print("Tests look weak. Rewriting tests...")
+        phase("Tests look weak. Rewriting tests...")
         log.info(
             "adopt regenerating weak swift tests for %s generation %s",
             name,
@@ -219,7 +220,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             print("Could not rewrite tests that fail before the implementation.")
             return False
         new_tests, new_check = written
-        print("Writing code for the new tests...")
+        phase("Writing code for the new tests...")
         try:
             result = generate_code(
                 behavior, new_tests, new_check, modules, required, name=name
@@ -262,7 +263,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
         return True
 
     while True:
-        print("Running tests...")
+        phase("Running tests...")
         log.info("running tests for generation %s", code["generation"])
         if swift:
             if not swift_toolchain_available():
@@ -354,7 +355,9 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             mark_adopted(spec["id"], code["generation"])
             record_deps_fingerprint(name, required)
             log.info("adopted generation %s", code["generation"])
+            blank()
             print("Tests passed. Adopted.")
+            blank()
             _note_adopt(name, "ok", "ok", "Tests passed. Adopted.", code["generation"])
             return
         if not pytest_passed:
@@ -410,7 +413,7 @@ def adopt_spec(name, modules=None, required=None, allow_longer=False):
             return
         repair_number += 1
         repairs_left -= 1
-        print(f"Repairing code ({repair_number} of {repair_limit})...")
+        phase(f"Repairing code ({repair_number} of {repair_limit})...")
         log.info("repair code %s of %s for %s", repair_number, repair_limit, name)
         try:
             result = repair_code(
@@ -501,11 +504,11 @@ def strengthen_adopted(name, modules=None, required=None):
 
     gaps = ""
     if thin is not None:
-        print(f"Suite looks thin ({thin}). Strengthening tests...")
+        phase(f"Suite looks thin ({thin}). Strengthening tests...")
         log.info("strengthen sniff=%s for %s", thin, name)
         gaps = thin
     else:
-        print("Reviewing suite adequacy...")
+        phase("Reviewing suite adequacy...")
         try:
             review = review_suite_adequacy(
                 behavior,
@@ -527,10 +530,12 @@ def strengthen_adopted(name, modules=None, required=None):
             )
             return "kept_first"
         if review.adequate:
+            blank()
             print("Suite is adequate. Keeping the first adopt.")
+            blank()
             log.info("strengthen adequate for %s", name)
             return "adequate"
-        print(f"Suite needs strengthening ({review.reason}).")
+        phase(f"Suite needs strengthening ({review.reason}).")
         log.info(
             "strengthen review reason=%s gaps=%s for %s",
             review.reason,
@@ -584,7 +589,7 @@ def strengthen_adopted(name, modules=None, required=None):
         )
         return "kept_first"
 
-    print("Writing code for the strengthened tests...")
+    phase("Writing code for the strengthened tests...")
     try:
         result = generate_code(
             behavior, new_tests, new_check, modules, required, name=name
@@ -614,7 +619,7 @@ def strengthen_adopted(name, modules=None, required=None):
         )
         return "kept_first"
 
-    print("Adopting strengthened generation...")
+    phase("Adopting strengthened generation...")
     adopt_spec(name, modules, required, allow_longer=True)
     spec = get_spec(name)
     adopted = None if spec is None else get_adopted_artifact(spec["id"], "code")

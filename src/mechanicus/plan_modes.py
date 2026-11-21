@@ -8,6 +8,7 @@ from mechanicus.codegen import (
     plan_application,
 )
 from mechanicus.config import log
+from mechanicus.console import blank, phase
 from mechanicus.jev import (
     _note_jev_failed,
     _note_jev_skipped,
@@ -86,22 +87,22 @@ def parse_plan_args(text):
 def _prepare_full_description(description):
     """Breadth-check and enrich for /plan full. Return planning description."""
     original = str(description).strip()
-    print("Checking description breadth for a full plan...")
+    phase("Checking description breadth for a full plan...")
     gaps = description_breadth(original)
     if gaps is None:
-        print(
+        phase(
             "Jev description check skipped or unavailable. "
             "Enriching from the description alone..."
         )
         gap_labels = []
     elif gaps:
-        print(
+        phase(
             "Description looks thin for /plan full. "
             "Enriching with implied product additions..."
         )
         gap_labels = gaps
     else:
-        print("Description looks broad enough. Enriching any remaining gaps...")
+        phase("Description looks broad enough. Enriching any remaining gaps...")
         gap_labels = []
 
     enriched = original
@@ -121,25 +122,29 @@ def _prepare_full_description(description):
         ]
         new_text = str(result.enriched_description or "").strip() or enriched
         if str(result.explanation or "").strip():
+            blank()
             print(result.explanation.strip())
         if new_additions:
+            blank()
             print("Assumed additions:")
             for item in new_additions:
                 print(f"  - {item}")
                 if item not in additions:
                     additions.append(item)
+            blank()
         elif attempt == 1:
+            blank()
             print("No assumed additions.")
         enriched = new_text
         if attempt == 1:
-            print("Re-checking enriched description...")
+            phase("Re-checking enriched description...")
             second = description_breadth(enriched)
             if second is None:
                 break
             if not second:
                 print("Enriched description looks broad enough.")
                 break
-            print(
+            phase(
                 "Enriched description still has gaps. "
                 "Enriching once more..."
             )
@@ -167,10 +172,10 @@ def plan_command(root, description, mode="mvp"):
     planning = original
     additions = []
     if mode_text == "full":
-        print("Planning full product...")
+        phase("Planning full product...")
         planning, additions = _prepare_full_description(original)
     else:
-        print("Planning MVP...")
+        phase("Planning MVP...")
     try:
         plan = plan_application(planning, mode=mode_text)
     except Exception as error:
@@ -185,11 +190,14 @@ def plan_command(root, description, mode="mvp"):
     if mode_text == "full":
         write_text_file(directory / "application.full.txt", planning.strip())
         log.info("saved full application description")
+        blank()
         print("Saved enriched brief to .mechanicus/application.full.txt")
         if additions:
             print("(Original description left in .mechanicus/application.txt)")
     if plan.explanation.strip():
-        print(f"\n{plan.explanation.strip()}")
+        blank()
+        print(plan.explanation.strip())
+        blank()
     seen_names = set()
     normalized = _planned_module_records(root, plan.modules, seen_names)
     for item in normalized:
@@ -223,9 +231,12 @@ def plan_command(root, description, mode="mvp"):
         write_text_file(item["path"], text)
         wrote = True
         log.info("wrote %s", item["relative"])
-        print(f"\n--- {item['relative']} ---")
+        blank()
+        print(f"--- {item['relative']} ---")
         print(text)
+    blank()
     if wrote:
-        print("\nEdit the module files, then enter /build.")
+        print("Edit the module files, then enter /build.")
     else:
         print("No new module files.")
+    blank()

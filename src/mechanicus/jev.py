@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 
 from mechanicus.config import configured_jev_model, log
+from mechanicus.console import blank
 from mechanicus.paths import module_import
 
 
@@ -47,6 +48,7 @@ def note_jev_result(status, reason, detail="", gate=""):
     line = f"Jev: {status} reason={reason}"
     if gate:
         line += f" gate={gate}"
+    blank()
     print(line)
     if detail and status == "failed":
         print(f"detail: {detail}")

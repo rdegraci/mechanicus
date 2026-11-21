@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 from mechanicus.config import code_root, log
+from mechanicus.console import blank, phase
 from mechanicus.lifecycle import generate_command
 from mechanicus.plan_build import find_module_files, module_output_path, module_records
 from mechanicus.project import is_swift_package
@@ -40,7 +41,9 @@ _CLEAN_HELP = """\
 
 
 def print_clean_help():
+    blank()
     print(_CLEAN_HELP.strip())
+    blank()
 
 
 def _build_dir(root):
@@ -122,6 +125,7 @@ def clean_orphans(root, apply=False):
         log.info("clean orphans: none")
         return True
     if not apply:
+        blank()
         print("Test-suite orphans (dry-run; enter /clean orphans --apply to remove):")
         for item in orphans:
             bits = []
@@ -133,6 +137,7 @@ def clean_orphans(root, apply=False):
             if item["in_db"]:
                 bits.append("db" + (" pinned" if item["pinned"] else ""))
             print(f"  {item['name']}" + (f" ({', '.join(bits)})" if bits else ""))
+        blank()
         return True
 
     removed_files = 0
@@ -170,7 +175,7 @@ def clean_orphans(root, apply=False):
 def clean_disk(root):
     """Rewrite adopted artifacts; stub unadopted Swift modules from .module files."""
     root = Path(root).resolve()
-    print("Rewriting adopted files from the database...")
+    phase("Rewriting adopted files from the database...")
     generate_command(root)
     if not is_swift_package(root):
         log.info("clean disk: python generate done")
@@ -227,12 +232,13 @@ def clean_command(root, mode=None, apply=False):
         if apply:
             print("Unknown option for /clean all. Enter /clean for help.")
             return False
-        print("Cleaning build...")
+        phase("Cleaning build...")
         clean_build(root)
-        print("Cleaning orphans...")
+        phase("Cleaning orphans...")
         clean_orphans(root, apply=True)
-        print("Cleaning disk...")
+        phase("Cleaning disk...")
         clean_disk(root)
+        blank()
         return True
     print(f"Unknown /clean mode '{mode}'. Enter /clean for help.")
     log.info("clean refused: unknown mode %s", mode)

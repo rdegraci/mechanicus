@@ -21,6 +21,7 @@ from mechanicus.draft import (
     start_greenfield,
 )
 from mechanicus.clean import clean_command
+from mechanicus.console import blank
 from mechanicus.lifecycle import (
     adopt_spec,
     generate_command,
@@ -159,14 +160,18 @@ def repl():
     draft = None
     try:
         print("Seed REPL.")
+        blank()
         print_help()
         settings = load_project(root)
         if settings["target"] != "python":
+            blank()
             print(
                 f"Project target: {settings['target']} "
                 f"({settings.get('package_name') or settings.get('package_root')})"
             )
+        blank()
         print_startup_hints(root)
+        blank()
         while True:
             try:
                 line = prompt.prompt(draft_prompt(draft)).strip()

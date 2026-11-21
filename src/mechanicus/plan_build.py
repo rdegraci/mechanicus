@@ -6,6 +6,7 @@ from pathlib import Path
 from mechanicus.bootstrap_guard import is_bootstrap_name
 from mechanicus.codegen import propose_feature, repair_cycle
 from mechanicus.config import code_root, log
+from mechanicus.console import blank
 from mechanicus.jev import _JEV_YES, feature_score
 from mechanicus.lifecycle import disk_sync_status
 from mechanicus.paths import layout_conflict, write_text_file
@@ -688,10 +689,12 @@ def module_statuses(root, outcomes=None):
 
 
 def print_module_statuses(rows, heading=None):
+    blank()
     if heading:
         print(heading)
     if not rows:
         print("No module files.")
+        blank()
         return
     name_width = max(len("name"), max(len(row["name"]) for row in rows))
     status_width = max(len("status"), max(len(row["status"]) for row in rows))
@@ -710,6 +713,7 @@ def print_module_statuses(rows, heading=None):
             f"{row['name']:<{name_width}}  {row['status']:<{status_width}}  "
             f"{row['sync']:<{sync_width}}  {uses:<{uses_width}}  {row['reason']}"
         )
+    blank()
 
 
 def modules_command(root):
@@ -725,5 +729,31 @@ def modules_command(root):
 
 
 
-from mechanicus.plan_modes import parse_plan_args, plan_command
-from mechanicus.build import build_command, build_one, _build_one_module
+def parse_plan_args(text):
+    from mechanicus.plan_modes import parse_plan_args as _parse_plan_args
+
+    return _parse_plan_args(text)
+
+
+def plan_command(root, description, mode="mvp"):
+    from mechanicus.plan_modes import plan_command as _plan_command
+
+    return _plan_command(root, description, mode=mode)
+
+
+def build_one(root, record):
+    from mechanicus.build import build_one as _build_one
+
+    return _build_one(root, record)
+
+
+def build_command(root, name=None):
+    from mechanicus.build import build_command as _build_command
+
+    return _build_command(root, name)
+
+
+def _build_one_module(root, name):
+    from mechanicus.build import _build_one_module as _impl
+
+    return _impl(root, name)

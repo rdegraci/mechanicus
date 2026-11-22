@@ -6,7 +6,7 @@ For all commands, read [OPERATOR-GUIDE.md](OPERATOR-GUIDE.md).
 
 ## Before you start
 
-You need Python 3.10 or later. You need an OpenAI API key. You need a TypeSafe API key.
+You need Python 3.10 or later. You need an OpenAI API key. A TypeSafe API key is optional, and without it Mechanicus skips the Jev checks and records them as skipped with reason no_key.
 
 ## Install
 
